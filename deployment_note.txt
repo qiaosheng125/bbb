@@ -1,0 +1,214 @@
+# 部署环境下载功能修复说明
+
+## 主要修复内容
+
+文件下载功能失效的主要原因是`download_file`函数实现不完整，只有权限验证部分，缺少实际的文件下载功能。部署环境中，需要复制完整的函数实现并添加必要的依赖项。
+
+## 修复步骤
+
+1. 在部署服务器上，备份当前的routes.py文件:
+```bash
+cp /var/www/flask-app/routes.py /var/www/flask-app/routes.py.bak
+```
+
+2. 确保`routes.py`中导入了所有必要的模块：
+```python
+from flask import Response, jsonify, url_for
+from urllib.parse import quote
+```
+
+3. 将`download_file`函数更新为完整实现：
+```python
+@app.route('/api/files/<int:file_id>/download')
+@login_required
+def download_file(file_id):
+    file = File.query.get_or_404(file_id)
+
+    # 验证权限和下载条件
+    if file.client_id != current_user.id and not current_user.is_admin:
+        audit_logger.log(
+            user=current_user,
+            action_type='unauthorized_file_access',
+            ip_address=request.remote_addr,
+            details={'file_id': file_id}
+        )
+        return jsonify({'error': '权限不足'}), 403
+        
+    # 获取请求中的下载模式，默认为用户的客户端模式
+    download_mode = request.args.get('mode', current_user.client_mode.value)
+    
+    try:
+        # 基于下载模式和时间条件确定要下载的文件版本
+        is_original_file = False  # 默认不是原始文件
+        
+        # 如果用户选择了DOWNLOAD模式（即非网页查看模式）
+        if download_mode == ClientMode.DOWNLOAD.value:
+            # 如果文件状态为完成且在2小时后，或管理员，则允许下载原始文件
+            if file.can_download_original() or current_user.is_admin:
+                # 返回原始文件
+                filepath = os.path.join(app.config['UPLOAD_FOLDER'], file.stored_filename)
+                is_original_file = True
+                download_type = "original"
+            # 否则，如果有加密版本，则返回加密版本
+            elif file.can_download_encrypted():
+                # 返回加密文件
+                encrypted_file = file.encrypted_version
+                if not encrypted_file:
+                    return jsonify({'error': '文件加密版本不存在'}), 404
+                filepath = os.path.join('uploads/encrypted', encrypted_file.encrypted_filename)
+                download_type = "encrypted"
+            else:
+                # 既没有原始文件访问权限，也没有加密版本
+                return jsonify({'error': '文件当前不可下载，请等待2小时后再试或联系管理员'}), 403
+        # 如果是网页查看模式，始终返回原始文件（网页内容）
+        else:  # ClientMode.WEBPAGE
+            if not file.can_download():
+                return jsonify({'error': '文件当前不可查看，请等待2小时后再试'}), 403
+            filepath = os.path.join(app.config['UPLOAD_FOLDER'], file.stored_filename)
+            is_original_file = True
+            download_type = "original_preview"
+        
+        # 检查文件是否存在
+        if not os.path.exists(filepath):
+            app.logger.error(f"文件不存在: {filepath}")
+            audit_logger.log(
+                user=current_user,
+                action_type='file_download_error',
+                ip_address=request.remote_addr,
+                details={'error': '文件不存在', 'file_id': file_id, 'filepath': filepath, 'download_type': download_type}
+            )
+            return jsonify({'error': '文件不存在或已被删除'}), 404
+
+        # 设置文件名和Content-Disposition
+        if is_original_file:
+            display_filename = file.filename
+        else:
+            # 为加密文件添加后缀标识
+            base_name, ext = os.path.splitext(file.filename)
+            display_filename = f"{base_name}_加密{ext}"
+        
+        # 生成符合RFC 5987标准的文件名（现代浏览器）
+        encoded_filename = quote(display_filename.encode('utf-8'))
+        content_disposition = f"attachment; filename*=UTF-8''{encoded_filename}"
+
+        # 生成ASCII回退文件名（旧浏览器）
+        ascii_name = display_filename.encode('ascii', errors='ignore').decode().replace(' ', '_')
+        content_disposition += f'; filename="{ascii_name}"'
+
+        # 是否作为附件下载
+        if download_mode == ClientMode.WEBPAGE.value:
+            # 网页查看模式下，在浏览器中显示而非下载
+            content_disposition = "inline"
+
+        # 手动创建响应对象
+        try:
+            with open(filepath, 'rb') as f:
+                data = f.read()
+        except Exception as e:
+            app.logger.error(f"读取文件失败: {str(e)}")
+            audit_logger.log(
+                user=current_user,
+                action_type='file_download_error',
+                ip_address=request.remote_addr,
+                details={'error': f'读取文件失败: {str(e)}', 'file_id': file_id, 'download_type': download_type}
+            )
+            return jsonify({'error': '读取文件失败，请联系管理员'}), 500
+
+        response = Response(
+            data,
+            mimetype='text/plain; charset=utf-8',
+            headers={'Content-Disposition': content_disposition}
+        )
+
+        # 记录成功下载
+        audit_logger.log(
+            user=current_user,
+            action_type='file_download_success',
+            ip_address=request.remote_addr,
+            details={
+                'file_id': file_id, 
+                'filename': display_filename,
+                'download_type': download_type,
+                'client_mode': download_mode
+            }
+        )
+
+        return response
+
+    except Exception as e:
+        app.logger.error(f"文件下载失败: {str(e)}")
+        audit_logger.log(
+            user=current_user,
+            action_type='file_download_error',
+            ip_address=request.remote_addr,
+            details={'error': str(e), 'file_id': file_id}
+        )
+        return jsonify({'error': '文件下载失败，请联系管理员'}), 500
+```
+
+## 调试方法
+
+如果更新后仍然存在问题，可以添加调试日志来定位具体原因：
+
+1. 在关键位置添加详细日志，例如在`routes.py`中添加：
+```python
+@app.route('/api/files/<int:file_id>/download')
+@login_required
+def download_file(file_id):
+    app.logger.info(f"下载文件请求: file_id={file_id}, 用户={current_user.username}")
+    # ... 其余代码 ...
+    
+    # 在访问文件路径之前记录路径
+    app.logger.info(f"尝试访问文件路径: {filepath}")
+    
+    # 在打开文件之前添加更多日志
+    try:
+        app.logger.info(f"开始读取文件: {filepath}")
+        with open(filepath, 'rb') as f:
+            data = f.read()
+        app.logger.info(f"文件成功读取，大小: {len(data)} 字节")
+    except Exception as e:
+        app.logger.error(f"读取文件失败: {str(e)}, 类型: {type(e)}")
+        # ... 其余代码 ...
+```
+
+2. 检查文件权限和路径配置，确保Web服务器用户有权读取文件：
+```bash
+# 检查UPLOAD_FOLDER配置
+grep "UPLOAD_FOLDER" /var/www/flask-app/*.py
+
+# 检查文件权限
+ls -la /var/www/flask-app/uploads/
+```
+
+3. 检查并测试加密文件路径：
+```bash
+# 确保encrypted目录存在
+mkdir -p /var/www/flask-app/uploads/encrypted
+
+# 检查加密文件记录与实际文件
+psql -U postgres -d flask_app -c "SELECT f.id, f.filename, e.encrypted_filename FROM files f JOIN encrypted_files e ON f.id = e.original_file_id LIMIT 5;"
+
+# 验证加密文件是否存在
+ls -la /var/www/flask-app/uploads/encrypted/
+```
+
+## 重要提示
+
+1. 确保更新代码后重启Web服务器：
+```bash
+systemctl restart flask-app
+# 或者
+supervisorctl restart flask-app
+```
+
+2. 检查日志文件查看详细错误信息：
+```bash
+tail -f /var/log/flask-app/error.log
+```
+
+3. 确保文件路径和权限正确：
+```bash
+chown -R www-data:www-data /var/www/flask-app/uploads/
+chmod -R 755 /var/www/flask-app/uploads/
+```

@@ -1,0 +1,10 @@
+            // 每行最多显示4个选项，使用flex布局实现
+            const choicesHTML = [];
+            // 将选项按每行最多4个进行分组
+            for (let i = 0; i < sel.choices.length; i += 4) {
+                const rowChoices = sel.choices.slice(i, i + 4);
+                const rowHTML = rowChoices.map(choice => 
+                    `<span class="badge ${playTypeColors.resultBadge} m-1" style="font-size: 1.0rem">${choice}</span>`
+                ).join('');
+                choicesHTML.push(`<div class="d-flex flex-wrap justify-content-center mb-1">${rowHTML}</div>`);
+            }

@@ -1,0 +1,983 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <h3>欢迎, {{ current_user.username }}!</h3>
+    </div>
+    <div class="card-body">
+
+        <div class="row">
+            <div class="col-md-6">
+                <h4>个人信息</h4>
+                <ul class="list-group">
+                    <li class="list-group-item">
+                        <strong>用户名:</strong> {{ current_user.username }}
+                    </li>
+                    <li class="list-group-item">
+                        <strong>标识符:</strong> 
+                        {% if current_user.identifier %}
+                            {{ current_user.identifier }}
+                        {% else %}
+                            <em>未设置</em>
+                        {% endif %}
+                    </li>
+                    <li class="list-group-item">
+                        <strong>账户类型:</strong> 
+                        {% if current_user.is_admin %}
+                            管理员
+                        {% else %}
+                            普通用户
+                            {% if current_user.client_mode.value == 'download' %}
+                                (下载模式)
+                            {% else %}
+                                (网页解析模式)
+                            {% endif %}
+                        {% endif %}
+                    </li>
+                    <li class="list-group-item">
+                        <strong>需求单量:</strong> <span data-info="order-count">{{ current_user.order_count }}</span>
+                        {% if not current_user.is_admin %}
+                        <button class="btn btn-sm btn-primary float-end" onclick="incrementOrderCount()">
+                            需求一单
+                        </button>
+                        {% endif %}
+                    </li>
+                </ul>
+            </div>
+
+            <!-- 通知栏位置 -->
+            <div class="col-md-6">
+                <h4>通知栏</h4>
+                <div class="card border-primary">
+                    <div class="card-body notification-board {% if not notification %}text-muted{% endif %}" style="min-height: 100px; border-radius: 5px; padding: 15px; font-size: 1.1rem; border-left: 4px solid #0d6efd;">
+                        {% if notification %}
+                            {{ notification.content }}
+                        {% else %}
+                            暂无通知
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {% if not current_user.is_admin %}
+        <div class="row mt-4">
+            <div class="col-12">
+                <h4>我的文件</h4>
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>文件名</th>
+                                <th>金额</th>
+                                <th>数量</th>
+                                <th>状态</th>
+                                <th>上传时间</th>
+                                <th>备注</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for file in files.items %}
+                            <tr data-file-id="{{ file.id }}" class="{{ file.status.value }}">
+                                <td>{{ file.display_id }}</td>
+                                <td>{{ file.filename }}</td>
+                                <td>{{ file.amount }}元</td>
+                                <td>{{ file.count }}张</td>
+                                <td>
+                                    <span class="badge bg-{{ {
+                                        'pending': 'warning',
+                                        'received': 'info',
+                                        'completed': 'success',
+                                        'revoked': 'danger'
+                                    }[file.status.value] }} status-badge">
+                                        {{ {
+                                            'pending': '待接收',
+                                            'received': '已接收',
+                                            'completed': '已完成',
+                                            'revoked': '已撤回'
+                                        }[file.status.value] }}
+                                    </span>
+                                </td>
+                                <td>{{ file.uploaded_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                                <td>
+                                    <span class="file-note-display" title="{{ file.note or '无' }}">
+                                        {{ file.note or '无' }}
+                                    </span>
+                                </td>
+                                <td>
+                                    {% if file.status.value not in ['revoked'] %}
+                                        {% if current_user.client_mode.value == 'download' %}
+                                            {# 下载模式：显示下载和已完成按钮 #}
+                                            {% if file.status.value == 'pending' or file.can_download() %}
+                                                <button class="btn btn-sm btn-primary" 
+                                                        onclick="downloadFile({{ file.id }})">
+                                                    下载
+                                                </button>
+                                            {% endif %}
+                                            {% if file.status.value == 'received' %}
+                                                <button class="btn btn-sm btn-success"
+                                                        onclick="updateFileStatus({{ file.id }}, 'completed')">
+                                                    已完成
+                                                </button>
+                                            {% endif %}
+                                        {% else %}
+                                            {# 网页解析模式：显示展示按钮 #}
+                                            {% if file.status.value == 'pending' or file.status.value == 'received' %}
+                                                <button class="btn btn-sm btn-primary" 
+                                                        onclick="showFile({{ file.id }})">
+                                                    展示
+                                                </button>
+                                            {% endif %}
+                                            {% if file.status.value == 'completed' and file.can_download() %}
+                                                <button class="btn btn-sm btn-info" 
+                                                        onclick="downloadFile({{ file.id }})">
+                                                    下载
+                                                </button>
+                                            {% endif %}
+                                        {% endif %}
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+
+                    <!-- 分页导航 -->
+                    {% if files.pages > 1 %}
+                    <nav aria-label="Page navigation">
+                        <ul class="pagination justify-content-center"></ul>
+                    </nav>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- 网页解析模式的展示模态框 -->
+        <div class="modal fade" id="fileViewerModal" tabindex="-1">
+            <div class="modal-dialog modal-xl">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">文件展示</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body text-center">
+                        <!-- HTML渲染模式的内容 -->
+                        <div id="htmlContent" class="mb-4">
+                            <div class="card border-primary mb-4">
+                                <div class="card-header bg-primary text-white py-2">
+                                    <h4 id="fileTitle" class="m-0" style="font-size: 0.9rem;">标题加载中...</h4>
+                                    <span id="fileSubtitle" class="small" style="font-size: 0.7rem;">详情加载中...</span>
+                                </div>
+                                <div class="card-body p-0" style="max-height: 60vh; overflow-y: auto; position: relative;">
+                                    <!-- 左侧翻页按钮 -->
+                                    <div style="position: absolute; left: 0; top: 50%; transform: translateY(-50%); z-index: 100;">
+                                        <button class="btn btn-sm btn-success" style="padding: 10px 5px; border-radius: 0 5px 5px 0;" onclick="prevImage(); event.stopPropagation();">
+                                            <i class="fas fa-chevron-left"></i><br>上<br>一<br>页
+                                        </button>
+                                    </div>
+                                    
+                                    <!-- 右侧翻页按钮 -->
+                                    <div style="position: absolute; right: 0; top: 50%; transform: translateY(-50%); z-index: 100;">
+                                        <button class="btn btn-sm btn-success" style="padding: 10px 5px; border-radius: 5px 0 0 5px;" onclick="nextImage(); event.stopPropagation();">
+                                            <i class="fas fa-chevron-right"></i><br>下<br>一<br>页
+                                        </button>
+                                    </div>
+                                    
+                                    <div id="fileSelections" class="mb-2 px-5 py-2" style="font-size: 1.1rem;">
+                                        <p class="text-muted text-center">选项内容加载中...</p>
+                                    </div>
+                                    
+                                    <h5 id="fileAmount" class="text-center fw-bold mb-0" style="font-size: 0.85rem;">金额计算中...</h5>
+                                </div>
+                                <div class="text-center py-1">
+                                    <small id="htmlPageIndicator" class="text-muted">第 0 页，共 0 页</small>
+                                </div>
+                            </div>
+                        </div>
+                        
+
+                        
+                        <div class="progress mb-4">
+                            <div id="progressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-primary" 
+                                 role="progressbar" style="width: 0%">
+                                0%
+                            </div>
+                        </div>
+                        
+                        <div class="text-center">
+                            <span id="pageIndicator" class="btn btn-light">第 1 页，共 1 页</span>
+                        </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- 客户页面已删除备注编辑功能，仅保留备注查看 -->
+
+{% if not current_user.is_admin %}
+<script>
+let currentPage = 1;
+let lastData = null;
+let currentEditingFileId = null;
+let userClientMode = "{{ current_user.client_mode.value }}"; // 存储用户的客户端模式
+
+function downloadFile(fileId) {
+    // 检查文件状态，判断是否需要更新状态
+    fetch(`/api/files/list?page=1&t=${Date.now()}`)
+    .then(response => response.json())
+    .then(data => {
+        // 查找当前文件
+        const file = data.files.find(f => f.id === fileId);
+        if (!file) {
+            throw new Error('找不到指定的文件');
+        }
+        
+        // 检查文件状态是否为completed
+        const isCompleted = file.status === 'completed';
+        
+        // 开始下载文件
+        return fetch(`/api/files/${fileId}/download`)
+        .then(response => {
+            if (!response.ok) {
+                // 尝试解析错误消息
+                return response.json().then(errorData => {
+                    throw new Error(errorData.error || '下载失败，服务器返回错误');
+                }).catch(e => {
+                    // 如果解析JSON失败，使用HTTP状态文本
+                    throw new Error(`下载失败 (${response.status}: ${response.statusText})`);
+                });
+            }
+            
+            // 检查是否是JSON响应（通常是错误消息）
+            const contentType = response.headers.get('Content-Type');
+            if (contentType && contentType.includes('application/json')) {
+                return response.json().then(errorData => {
+                    throw new Error(errorData.error || '下载失败，无法获取文件');
+                });
+            }
+            
+            // 尝试从响应头获取文件名
+            let filename = '';
+            const contentDisposition = response.headers.get('Content-Disposition');
+            
+            if (contentDisposition) {
+                // 获取文件名（支持中文文件名）
+                const filenameMatch = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
+                if (filenameMatch && filenameMatch[1]) {
+                    // 解码URL编码的文件名
+                    filename = decodeURIComponent(filenameMatch[1]);
+                } else {
+                    // 尝试获取ASCII文件名（回退方案）
+                    const asciiFilenameMatch = contentDisposition.match(/filename="([^"]+)"/i);
+                    if (asciiFilenameMatch && asciiFilenameMatch[1]) {
+                        filename = asciiFilenameMatch[1];
+                    }
+                }
+            }
+            
+            if (!filename) {
+                filename = `文件_${fileId}.txt`;  // 如果无法获取文件名，使用默认文件名
+                console.warn('无法从响应中获取文件名，使用默认文件名');
+            }
+            
+            return response.blob().then(blob => {
+                if (blob.size === 0) {
+                    throw new Error('下载的文件内容为空');
+                }
+                return { blob, filename, isCompleted };
+            });
+        });
+    })
+    .then(({ blob, filename, isCompleted }) => {
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;  // 使用从服务器响应中提取的文件名
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+        
+        // 只有在文件不是completed状态时才更新状态
+        if (!isCompleted) {
+            return updateFileStatus(fileId, 'received');
+        }
+        // 对于已完成的文件，不尝试更新状态
+        return Promise.resolve();
+    })
+    .catch(error => {
+        console.error('下载文件时出错:', error);
+        // 显示更友好的错误消息
+        if (error.message.includes('文件不存在') || error.message.includes('不可下载')) {
+            alert(error.message);
+        } else if (error.message.includes('2小时')) {
+            alert('文件当前不可下载，请等待2小时后再试');
+        } else {
+            alert('下载失败，请稍后重试。如果问题持续存在，请联系管理员。');
+        }
+    });
+}
+
+// 存储当前页面的数据
+let currentFileData = null;
+
+
+
+// 更新HTML内容的函数
+function updateHTMLContent(data) {
+    if (!data.text_content) return;
+    
+    const textContent = data.text_content;
+    const filename = textContent.filename_data;
+    
+    // 更新标题和副标题
+    document.getElementById('fileTitle').textContent = `${filename.identifier} ${filename.content}`;
+    document.getElementById('fileSubtitle').textContent = `金额 ${filename.amount} 元，共 ${filename.quantity} 张`;
+    
+    // 更新选项内容
+    const selectionsContainer = document.getElementById('fileSelections');
+    if (textContent.selections && textContent.selections.length > 0) {
+        // 确定玩法类型颜色
+        const playTypeColors = getPlayTypeColors(filename.content);
+        
+        const selectionsHTML = textContent.selections.map(sel => {
+            // 每行最多显示4个选项，使用flex布局实现
+            const choicesHTML = [];
+            // 将选项按每行最多4个进行分组
+            for (let i = 0; i < sel.choices.length; i += 4) {
+                const rowChoices = sel.choices.slice(i, i + 4);
+                const rowHTML = rowChoices.map(choice => 
+                    `<span class="badge ${playTypeColors.resultBadge} m-1" style="font-size: 1.0rem">${choice}</span>`
+                ).join('');
+                choicesHTML.push(`<div class="d-flex flex-wrap justify-content-center mb-1">${rowHTML}</div>`);
+            }
+            return `
+            <div class="card mb-0 mt-1 border-${playTypeColors.matchBorder}">
+                <div class="card-header ${playTypeColors.matchHeader} py-1 px-2">
+                    <strong style="font-size: 1.1rem;">场次 [${sel.match_number}]</strong>
+                </div>
+                <div class="card-body py-0 px-2 ${playTypeColors.matchBody}">
+                    ${choicesHTML.join("")}
+                </div>
+            </div>`;
+        }).join('');
+        
+        selectionsContainer.innerHTML = selectionsHTML;
+    } else {
+        selectionsContainer.innerHTML = '<p class="text-center text-primary">没有选项数据</p>';
+    }
+    
+    // 根据玩法类型获取对应的颜色样式
+    function getPlayTypeColors(content) {
+        // 默认颜色
+        const defaultColors = {
+            matchHeader: 'bg-primary text-white',
+            matchBody: 'bg-light',
+            matchBorder: 'primary',
+            resultBadge: 'bg-info text-white'
+        };
+        
+        console.log('检测玩法类型:', content);
+        
+        // 确保content是字符串
+        if (!content || typeof content !== 'string') {
+            console.warn('玩法类型无效或为空:', content);
+            return defaultColors;
+        }
+        
+        // 判断玩法类型 - 使用更准确的检测
+        if (content.indexOf('胜平负') !== -1) {
+            console.log('检测到胜平负玩法');
+            return {
+                matchHeader: 'bg-primary bg-opacity-75 text-white',
+                matchBody: 'bg-light',
+                matchBorder: 'primary',
+                resultBadge: 'bg-info text-white'
+            };
+        } else if (content.indexOf('半全场') !== -1) {
+            console.log('检测到半全场玩法');
+            return {
+                matchHeader: 'bg-success bg-opacity-75 text-white',
+                matchBody: 'bg-light',
+                matchBorder: 'success',
+                resultBadge: 'bg-success bg-opacity-75 text-white'
+            };
+        } else if (content.indexOf('比分') !== -1) {
+            console.log('检测到比分玩法');
+            return {
+                matchHeader: 'bg-danger bg-opacity-75 text-white',
+                matchBody: 'bg-light',
+                matchBorder: 'danger',
+                resultBadge: 'bg-danger bg-opacity-75 text-white'
+            };
+        } else if (content.indexOf('上下盘') !== -1) {
+            console.log('检测到上下盘玩法');
+            return {
+                matchHeader: 'bg-warning bg-opacity-75 text-dark',
+                matchBody: 'bg-light',
+                matchBorder: 'warning',
+                resultBadge: 'bg-warning bg-opacity-75 text-dark'
+            };
+        } else if (content.indexOf('胜负') !== -1) {
+            console.log('检测到胜负玩法');
+            return {
+                matchHeader: 'bg-info bg-opacity-75 text-dark',
+                matchBody: 'bg-light',
+                matchBorder: 'info',
+                resultBadge: 'bg-info bg-opacity-75 text-dark'
+            };
+        } else if (content.indexOf('总进球') !== -1) {
+            console.log('检测到总进球玩法');
+            return {
+                matchHeader: 'bg-dark bg-opacity-75 text-white',
+                matchBody: 'bg-light',
+                matchBorder: 'dark',
+                resultBadge: 'bg-dark bg-opacity-75 text-white'
+            };
+        }
+        
+        console.log('未识别的玩法类型，使用默认颜色');
+        return defaultColors;
+    }
+    
+    // 更新金额
+    const amountElement = document.getElementById('fileAmount');
+    if (textContent.calculated_amount !== null) {
+        amountElement.textContent = `总金额: ${textContent.calculated_amount} 元`;
+        amountElement.classList.add('text-success');
+    } else {
+        amountElement.textContent = '金额计算失败';
+        amountElement.classList.add('text-danger');
+    }
+    
+    // 更新页码指示器
+    document.getElementById('htmlPageIndicator').textContent = 
+        `第 ${data.current_page + 1} 页，共 ${data.total_pages} 页`;
+}
+
+function showFile(fileId) {
+    currentFileId = fileId;
+    loadPage(0);
+}
+
+function prevImage() {
+    if (currentPage > 0) {
+        loadPage(currentPage - 1);
+    }
+}
+
+function nextImage() {
+    if (currentPage < totalPages - 1) {
+        loadPage(currentPage + 1);
+    }
+}
+
+function loadPage(page) {
+    fetch(`/api/files/${currentFileId}/page/${page}`)
+    .then(response => {
+        if (!response.ok) throw new Error('Failed to fetch page data')
+        return response.json()
+    })
+    .then(data => {
+        // 保存当前页面数据
+        currentFileData = data;
+        currentPage = data.current_page;
+        totalPages = data.total_pages;
+        
+        // 打印数据以便调试
+        console.log('文件数据:', data);
+        if (data.text_content) {
+            console.log('文件名数据:', data.text_content.filename_data);
+            console.log('玩法类型:', data.text_content.filename_data.content);
+        }
+        
+        // 更新HTML内容
+        updateHTMLContent(data);
+        
+        // 更新页码和进度条
+        updatePageIndicator();
+        updateProgress(currentPage, totalPages);
+        
+        // 首次加载时显示模态框
+        if (page === 0) {
+            const modal = new bootstrap.Modal(document.getElementById('fileViewerModal'));
+            modal.show();
+        }
+
+        // 清除所有现有的完成按钮
+        const existingCompleteButtons = document.querySelectorAll('.complete-button');
+        existingCompleteButtons.forEach(button => button.remove());
+
+        // 如果是最后一页，显示完成按钮
+        if (currentPage === totalPages - 1) {
+            const completeButton = document.createElement('button');
+            completeButton.className = 'btn btn-success mt-3 complete-button';
+            completeButton.textContent = '完成';
+            completeButton.onclick = () => updateFileStatus(currentFileId, 'completed');
+            document.querySelector('.modal-body').appendChild(completeButton);
+        }
+        
+        // 如果是第一页，更新文件状态
+        if (page === 0) {
+            return updateFileStatus(currentFileId, 'received');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error)
+        alert('加载数据失败，请重试')
+    })
+}
+
+function updatePageIndicator() {
+    document.getElementById('pageIndicator').textContent = 
+        `第 ${currentPage + 1} 页，共 ${totalPages} 页`;
+}
+
+function updateFileStatus(fileId, newStatus) {
+    return fetch(`/api/files/${fileId}/status`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ status: newStatus })
+    })
+    .then(response => {
+        if (!response.ok) throw new Error('Status update failed')
+        return response.json()
+    })
+    .then(() => {
+        if (newStatus === 'completed') {
+            // 先关闭模态框
+            const modal = bootstrap.Modal.getInstance(document.getElementById('fileViewerModal'));
+            if (modal) {
+                modal.hide();
+            }
+            alert('文件已完成，2小时后将开放下载功能');
+            // 使用setTimeout确保模态框完全关闭后再刷新页面
+            setTimeout(() => {
+                location.reload(); // 直接刷新整个页面而不是只更新列表
+            }, 100);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('状态更新失败，请重试');
+    });
+}
+
+function incrementOrderCount() {
+    fetch('/api/users/increment-order-count', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => {
+        if (!response.ok) throw new Error('Failed to increment order count')
+        return response.json()
+    })
+    .then(data => {
+        location.reload()  // 刷新页面以显示更新后的数量
+    })
+    .catch(error => {
+        console.error('Error:', error)
+        alert('操作失败，请重试')
+    })
+}
+
+// 更新进度条
+function updateProgress(current, total) {
+    const percentage = Math.round((current + 1) / total * 100);
+    const progressBar = document.getElementById('progressBar');
+    progressBar.style.width = `${percentage}%`;
+    progressBar.textContent = `${percentage}%`;
+}
+
+// 更新用户信息
+function updateUserInfo() {
+    fetch('/api/users/current-info')
+    .then(response => response.json())
+    .then(data => {
+        // 获取当前显示的需求单量
+        const currentOrderCount = parseInt(document.querySelector('[data-info="order-count"]').textContent);
+        
+        // 如果新的需求单量大于当前显示的需求单量，播放提示音
+        if (parseInt(data.order_count) > currentOrderCount) {
+            playNotificationSound();
+        }
+        
+        // 更新需求单量显示
+        document.querySelector('[data-info="order-count"]').textContent = data.order_count;
+        
+        // 检查客户端模式是否有变化
+        if (data.client_mode && data.client_mode !== userClientMode) {
+            console.log(`检测到客户端模式变更：${userClientMode} -> ${data.client_mode}`);
+            alert('您的账户模式已被管理员更改，页面将刷新以应用新设置');
+            location.reload();
+        }
+    })
+    .catch(error => console.error('Error updating user info:', error));
+}
+
+
+function throttle(func, limit) {
+    let inThrottle;
+    return function(...args) {
+        if (!inThrottle) {
+            func.apply(this, args);
+            inThrottle = true;
+            setTimeout(() => inThrottle = false, limit);
+        }
+    }
+}
+
+function updateTableContent(files) {
+    const tbody = document.querySelector('tbody');
+    
+    const newContent = files.map(file => `
+        <tr data-file-id="${file.id}" class="${file.status}">
+            <td>${file.display_id}</td>
+            <td>${file.filename}</td>
+            <td>${file.amount}元</td>
+            <td>${file.count}张</td>
+            <td>
+                <span class="badge bg-${
+                    {
+                        'pending': 'warning',
+                        'received': 'info',
+                        'completed': 'success',
+                        'revoked': 'danger'
+                    }[file.status]
+                } status-badge">
+                    ${
+                        {
+                            'pending': '待接收',
+                            'received': '已接收',
+                            'completed': '已完成',
+                            'revoked': '已撤回'
+                        }[file.status]
+                    }
+                </span>
+            </td>
+            <td>${file.uploaded_at}</td>
+            <td>
+                <span class="file-note-display" title="${file.note || '无'}">
+                    ${file.note || '无'}
+                </span>
+            </td>
+            <td>
+                ${file.status !== 'revoked' ? `
+                    ${userClientMode === 'download' ? `
+                        ${(file.status === 'pending' || file.can_download) ? `
+                            <button class="btn btn-sm btn-primary" onclick="downloadFile(${file.id})">
+                                下载
+                            </button>
+                        ` : ''}
+                        ${file.status === 'received' ? `
+                            <button class="btn btn-sm btn-success" onclick="updateFileStatus(${file.id}, 'completed')">
+                                已完成
+                            </button>
+                        ` : ''}
+                    ` : `
+                        ${(file.status === 'pending' || file.status === 'received') ? `
+                            <button class="btn btn-sm btn-primary" onclick="showFile(${file.id})">
+                                展示
+                            </button>
+                        ` : ''}
+                        ${file.status === 'completed' ? 
+                            file.can_download ? `
+                                <button class="btn btn-sm btn-info" onclick="downloadFile(${file.id})">
+                                    下载
+                                </button>
+                            ` : `
+                                <button class="btn btn-sm btn-secondary" disabled title="文件已完成，需等待2小时后可下载">
+                                    等待中
+                                </button>
+                            `
+                        : ''}
+                    `}
+                ` : ''}
+            </td>
+        </tr>
+    `).join('');
+
+    // 只在内容变化时更新DOM
+    if (tbody && tbody.innerHTML !== newContent) {
+        tbody.innerHTML = newContent;
+    }
+}
+
+function generatePagination(pagination) {
+    const nav = document.querySelector('nav[aria-label="Page navigation"]');
+    if (!nav) return;
+
+    const ul = nav.querySelector('ul.pagination');
+    const newPagination = `
+        <li class="page-item ${!pagination.has_prev ? 'disabled' : ''}">
+            <a class="page-link" href="#" onclick="changePage(${pagination.prev_num}); return false;">上一页</a>
+        </li>
+        ${Array.from({length: pagination.pages}, (_, i) => i + 1)
+            .filter(i => i === 1 || i === pagination.pages || (i >= pagination.page - 2 && i <= pagination.page + 2))
+            .map(i => `
+                <li class="page-item ${i === pagination.page ? 'active' : ''}">
+                    <a class="page-link" href="#" onclick="changePage(${i}); return false;">${i}</a>
+                </li>
+            `).join('')}
+        <li class="page-item ${!pagination.has_next ? 'disabled' : ''}">
+            <a class="page-link" href="#" onclick="changePage(${pagination.next_num}); return false;">下一页</a>
+        </li>
+    `;
+
+    // 只在内容变化时更新DOM
+    if (ul.innerHTML !== newPagination) {
+        ul.innerHTML = newPagination;
+    }
+}
+
+function updateFileList() {
+    fetch(`/api/files/list?page=${currentPage}&t=${Date.now()}`) // 添加时间戳防止缓存
+    .then(response => response.json())
+    .then(data => {
+        // 首先确保audio元素已正确加载
+        const audio = document.getElementById('notificationSound');
+        if (!audio || !audio.querySelector('source')) {
+            console.error('音频元素未正确加载');
+        }
+        
+        const newData = JSON.stringify(data);
+        
+        // 初始化时，只记录数据不触发通知
+        if (lastData === null) {
+            console.log('初始化文件列表数据');
+            lastData = newData;
+            updateTableContent(data.files);
+            generatePagination(data.pagination);
+            return;
+        }
+        
+        // 当数据发生变化时进行比较
+        if (newData !== lastData) {
+            console.log('检测到文件列表变化，进行对比');
+            
+            try {
+                // 解析数据以进行比较
+                const oldData = JSON.parse(lastData);
+                const oldFileIds = oldData.files.map(f => f.id);
+                const oldPendingFileIds = oldData.files
+                    .filter(f => f.status === 'pending')
+                    .map(f => f.id);
+                
+                // 检查新文件或状态变化为待接收的文件
+                const newPendingFiles = data.files
+                    .filter(file => file.status === 'pending' && !oldPendingFileIds.includes(file.id));
+                
+                // 检查是否有新文件（之前不存在的文件ID）
+                const newFiles = data.files
+                    .filter(file => !oldFileIds.includes(file.id));
+                
+                console.log('当前页面旧文件ID:', oldFileIds);
+                console.log('新的待接收文件数量:', newPendingFiles.length);
+                console.log('检测到全新的文件:', newFiles.length);
+                
+                // 如果有新的待接收文件或新增文件，播放提示音
+                if (newPendingFiles.length > 0 || newFiles.length > 0) {
+                    console.log('检测到新文件或状态变化，播放提示音');
+                    playNotificationSound();
+                }
+            } catch (e) {
+                console.error('比较文件列表失败:', e);
+            }
+            
+            // 检查是否有正在查看的文件被撤回
+            if (window.currentFileId) {
+                const currentFile = data.files.find(f => f.id === currentFileId);
+                if (currentFile && currentFile.status === 'revoked') {
+                    // 关闭模态框并刷新页面
+                    const modal = bootstrap.Modal.getInstance(document.getElementById('fileViewerModal'));
+                    if (modal) {
+                        modal.hide();
+                    }
+                    location.reload();
+                    return;
+                }
+            }
+            
+            // 无论如何都更新表格和分页
+            updateTableContent(data.files);
+            generatePagination(data.pagination);
+        }
+        
+        // 更新缓存的数据
+        lastData = newData;
+    })
+    .catch(error => console.error('Error updating file list:', error));
+}
+
+function changePage(page) {
+    currentPage = page;
+    lastData = null; // 强制更新数据
+    updateFileList();
+}
+
+const throttledUpdateFileList = throttle(updateFileList, 1000);
+const throttledUpdateUserInfo = throttle(updateUserInfo, 1000);
+
+// 定义全局变量，用于跟踪文件状态
+let lastPendingCheckTime = 0;
+let lastPendingCount = 0;
+let pendingFileIDs = new Set(); // 使用Set存储待接收文件的ID，便于检测变化
+
+// 专门检查待接收文件并播放提示音的函数
+function checkPendingFiles() {
+    const now = Date.now();
+    fetch(`/api/files/list?page=1&t=${now}`) // 总是从第一页开始检查最新文件
+    .then(response => response.json())
+    .then(data => {
+        // 获取所有待接收文件
+        const pendingFiles = data.files.filter(file => file.status === 'pending');
+        const pendingCount = pendingFiles.length;
+        
+        console.log(`检查待接收文件: 发现 ${pendingCount} 个待接收文件`);
+        
+        // 创建新的待接收文件ID集合
+        const currentPendingIDs = new Set(pendingFiles.map(file => file.id));
+        
+        // 检查是否有新的待接收文件
+        let hasNewPendingFiles = false;
+        currentPendingIDs.forEach(id => {
+            if (!pendingFileIDs.has(id)) {
+                hasNewPendingFiles = true;
+                console.log(`检测到新的待接收文件: ID=${id}`);
+            }
+        });
+        
+        // 检查是否需要播放提示音的条件:
+        // 1. 有待接收文件 AND
+        // 2. (有新的待接收文件 OR 待接收文件数量增加 OR 距离上次检查已经过去了至少30秒)
+        const timeSinceLastCheck = now - lastPendingCheckTime;
+        const shouldPlaySound = pendingCount > 0 && 
+                              (hasNewPendingFiles || 
+                               pendingCount > lastPendingCount || 
+                               timeSinceLastCheck > 30000);
+        
+        if (shouldPlaySound) {
+            console.log('检测到待接收文件变化，播放提示音', pendingFiles);
+            console.log(`原因: 有新文件=${hasNewPendingFiles} 或 文件数量变化 ${lastPendingCount} -> ${pendingCount} 或 时间间隔 ${timeSinceLastCheck/1000}秒`);
+            
+            // 尝试播放提示音，并添加错误处理
+            try {
+                // 确保音频系统已初始化
+                initAudioSystem();
+                
+                // 延迟播放，确保音频系统已准备就绪
+                setTimeout(() => {
+                    const result = playNotificationSound();
+                    if (!result) {
+                        console.warn('提示音播放可能失败，尝试再次播放');
+                        setTimeout(playNotificationSound, 500);
+                    }
+                }, 100);
+                
+                // 更新最后检查时间
+                lastPendingCheckTime = now;
+            } catch (e) {
+                console.error('播放提示音时出错:', e);
+            }
+        }
+        
+        // 更新跟踪变量
+        lastPendingCount = pendingCount;
+        pendingFileIDs = currentPendingIDs;
+    })
+    .catch(error => console.error('检查待接收文件失败:', error));
+}
+
+// 播放提示音函数
+function playNotificationSound() {
+    console.log('播放客户端提示音...');
+    const audio = initAudioSystem(); // 使用初始化函数确保音频元素存在
+    
+    // 先重置以确保可以重新播放
+    audio.pause();
+    audio.currentTime = 0;
+    
+    // 播放提示音
+    return audio.play()
+        .then(() => {
+            console.log('提示音播放成功');
+            return true;
+        })
+        .catch(e => {
+            console.error('提示音播放失败:', e);
+            return false;
+        });
+}
+
+// 初始化音频系统
+function initAudioSystem() {
+    // 检查音频元素是否存在，如果不存在则创建
+    let audio = document.getElementById('notificationSound');
+    if (!audio) {
+        console.log('创建新的通知音频元素');
+        audio = document.createElement('audio');
+        audio.id = 'notificationSound';
+        
+        // 添加音频源
+        const source = document.createElement('source');
+        source.src = "/static/notification.mp3";
+        source.type = "audio/mpeg";
+        audio.appendChild(source);
+        
+        // 设置音频属性
+        audio.preload = "auto";
+        
+        // 添加到DOM
+        document.body.appendChild(audio);
+    }
+    return audio;
+}
+
+// 备注功能已禁用，客户仅可查看备注
+
+function initialize() {
+    console.log('初始化客户端页面...');
+    
+    // 初始加载
+    updateFileList();
+    updateUserInfo();
+    
+    // 定时更新
+    setInterval(throttledUpdateFileList, 1000);
+    setInterval(throttledUpdateUserInfo, 2000);
+    
+    // 额外单独的待接收文件检查
+    setInterval(checkPendingFiles, 3000);
+    
+    // 尝试初始播放一下提示音，确保浏览器允许播放
+    setTimeout(() => {
+        console.log('尝试初始化音频播放能力...');
+        const audio = initAudioSystem(); // 使用初始化函数
+        if (audio) {
+            audio.volume = 0.1; // 降低音量
+            audio.play()
+                .then(() => {
+                    console.log('初始音频播放成功');
+                    audio.pause();
+                    audio.currentTime = 0;
+                    audio.volume = 1.0; // 恢复音量
+                })
+                .catch(e => {
+                    console.log('初始音频播放失败, 这可能是正常的:', e);
+                    console.log('用户需要与页面交互后才能播放音频');
+                });
+        }
+    }, 1000);
+}
+
+// 执行初始化
+initialize();
+</script>
+{% endif %}
+{% endblock content %}

@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="zh" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>{{ title }} - 认证系统</title>
+    <link rel="stylesheet" href="https://cdn.replit.com/agent/bootstrap-agent-dark-theme.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        /* 通知栏样式 */
+        .notification-card {
+            box-shadow: 0 3px 5px rgba(0,0,0,0.1);
+            border: 1px solid #0d6efd;
+            border-radius: 8px;
+            overflow: hidden;
+            margin-bottom: 20px;
+        }
+        
+        .notification-card .card-header {
+            background-color: #0d6efd;
+        }
+        
+        .notification-card .notification-content {
+            font-size: 1.1rem;
+            margin-bottom: 0;
+            min-height: 100px;
+            padding: 15px;
+            border-radius: 5px;
+            border-left: 4px solid #0d6efd;
+        }
+        
+        .notification-scroll {
+            animation: scroll 15s linear infinite;
+            animation-delay: 3s;
+            padding: 5px 0;
+        }
+        
+        .notification-scroll:hover {
+            animation-play-state: paused;
+        }
+        
+        /* 文件展示样式 - 玩法类型颜色 */
+        /* 全局卡片样式优化 */
+        #fileSelections .card {
+            margin-bottom: 0.5rem !important;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        
+        #fileSelections .card-header {
+            padding: 0.25rem 0.5rem;
+            font-size: 0.9rem;
+        }
+        
+        #fileSelections .card-body {
+            padding: 0.35rem 0.5rem;
+        }
+        
+        /* 胜平负玩法 */
+        .bg-primary.bg-opacity-75 {
+            background-color: rgba(13, 110, 253, 0.75) !important;
+        }
+        
+        /* 半全场玩法 */
+        .bg-success.bg-opacity-75 {
+            background-color: rgba(25, 135, 84, 0.75) !important;
+        }
+        
+        /* 比分玩法 */
+        .bg-danger.bg-opacity-75 {
+            background-color: rgba(220, 53, 69, 0.75) !important;
+        }
+        
+        /* 上下盘玩法 */
+        .bg-warning.bg-opacity-75 {
+            background-color: rgba(255, 193, 7, 0.75) !important;
+        }
+        
+        /* 胜负玩法 */
+        .bg-info.bg-opacity-75 {
+            background-color: rgba(13, 202, 240, 0.75) !important;
+        }
+        
+        /* 总进球玩法 */
+        .bg-secondary.bg-opacity-75 {
+            background-color: rgba(108, 117, 125, 0.75) !important;
+        }
+        
+        /* 结果徽章样式优化 */
+        #fileSelections .badge {
+            font-size: 0.8rem;
+            padding: 0.25rem 0.45rem;
+            margin: 0.15rem !important;
+        }
+    </style>
+</head>
+<body>
+    <!-- 提示音频元素 -->
+    <audio id="notificationSound" preload="auto" style="display:none;">
+        {% if current_user.is_authenticated %}
+            {% if current_user.is_admin %}
+                <source src="{{ url_for('static', filename='sounds/notification_admin.mp3') }}?v={{ now }}" type="audio/mpeg">
+            {% else %}
+                <source src="{{ url_for('static', filename='sounds/notification_client.mp3') }}?v={{ now }}" type="audio/mpeg">
+            {% endif %}
+        {% endif %}
+    </audio>
+
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container">
+            <a class="navbar-brand" href="{{ url_for('dashboard') }}">认证系统</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    {% if current_user.is_authenticated %}
+                        <li class="nav-item">
+                            <a class="nav-link" href="{{ url_for('dashboard') }}">控制面板</a>
+                        </li>
+                        {% if current_user.is_admin %}
+                        <li class="nav-item">
+                            <a class="nav-link" href="{{ url_for('admin') }}">管理员</a>
+                        </li>
+                        {% endif %}
+                        <li class="nav-item">
+                            <a class="nav-link" href="{{ url_for('logout') }}">退出登录</a>
+                        </li>
+                    {% else %}
+                        <li class="nav-item">
+                            <a class="nav-link" href="{{ url_for('login') }}">登录</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="{{ url_for('register') }}">注册</a>
+                        </li>
+                    {% endif %}
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <main class="container mt-4">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ category }}">{{ message }}</div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        {% if current_user.is_authenticated and notification %}
+        <!-- 通知栏 - 简洁版，只显示一条最新通知 -->
+        <div class="card mb-4 notification-card">
+            <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="fas fa-bullhorn me-2"></i>系统通知</h5>
+                <button type="button" class="btn-close btn-close-white" aria-label="Close" id="closeNotifications"></button>
+            </div>
+            <div class="card-body">
+                <p class="notification-content mb-0">{{ notification.content }}</p>
+                {% if current_user.is_admin %}
+                <div class="mt-2 text-end">
+                    <button class="btn btn-sm btn-outline-secondary edit-notification" data-id="{{ notification.id }}">
+                        <i class="fas fa-edit"></i> 编辑
+                    </button>
+                    <button class="btn btn-sm btn-outline-danger delete-notification" data-id="{{ notification.id }}">
+                        <i class="fas fa-trash"></i> 删除
+                    </button>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+        
+        {% block content %}{% endblock %}
+    </main>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+    <script>
+    // 音频初始化和通知自动更新功能
+    
+    // 音频已初始化标志
+    window.audioInitialized = false;
+    
+    // 初始化音频系统 - 在用户首次交互时调用
+    function initAudioSystem() {
+        // 非登录用户不需要初始化音频
+        if (!{% if current_user.is_authenticated %}true{% else %}false{% endif %}) return;
+        if (window.audioInitialized) return;
+        
+        console.log('初始化音频系统...');
+        const audio = document.getElementById('notificationSound');
+        
+        if (!audio) {
+            console.error('找不到音频元素！');
+            return;
+        }
+        
+        // 尝试预加载音频
+        audio.volume = 0.1; // 低音量
+        audio.load();
+        
+        // 尝试播放然后立即暂停
+        audio.play()
+            .then(() => {
+                console.log('音频系统初始化成功');
+                audio.pause();
+                audio.currentTime = 0;
+                audio.volume = 1.0;
+                window.audioInitialized = true;
+            })
+            .catch(error => {
+                console.warn('音频初始化失败，可能需要用户交互:', error);
+            });
+    }
+    
+    // 添加事件监听器，在用户交互时初始化音频
+    document.addEventListener('click', function initAudioOnce() {
+        initAudioSystem();
+        // 只执行一次
+        document.removeEventListener('click', initAudioOnce);
+    }, { once: true });
+    
+    // 播放提示音函数 - 改进版
+    function playNotificationSound() {
+        console.log('尝试播放提示音...');
+        const audio = document.getElementById('notificationSound');
+        
+        if (!audio) {
+            console.error('提示音元素未找到!');
+            return false;
+        }
+        
+        const source = audio.querySelector('source');
+        if (!source) {
+            console.error('提示音源未找到!');
+            return false;
+        }
+        
+        console.log('提示音源:', source.src);
+        
+        try {
+            // 重置并预加载
+            audio.currentTime = 0;
+            audio.volume = 1.0;
+            audio.load();
+            
+            // 尝试播放
+            const playPromise = audio.play();
+            if (playPromise !== undefined) {
+                playPromise
+                    .then(() => {
+                        console.log('提示音播放成功');
+                        return true;
+                    })
+                    .catch(error => {
+                        console.error('播放提示音失败:', error);
+                        
+                        // 创建新的Audio对象尝试播放
+                        console.log('尝试替代播放方法...');
+                        try {
+                            // 确保URL包含时间戳，避免缓存
+                            const currentTime = new Date().getTime();
+                            const audioSrc = source.src.split('?')[0] + '?t=' + currentTime;
+                            const newAudio = new Audio(audioSrc);
+                            newAudio.volume = 1.0;
+                            return newAudio.play();
+                        } catch (e) {
+                            console.error('替代播放方法也失败:', e);
+                            return false;
+                        }
+                    });
+            }
+        } catch (e) {
+            console.error('播放提示音时发生异常:', e);
+            return false;
+        }
+        
+        return true;
+    }
+    
+    // 测试提示音函数
+    function testNotificationSound() {
+        console.log('测试提示音播放...');
+        initAudioSystem(); // 确保音频系统已初始化
+        setTimeout(() => {
+            const result = playNotificationSound();
+            if (result) {
+                console.log('提示音测试已执行');
+            } else {
+                console.error('提示音测试失败');
+                alert('提示音播放失败。请确保您已允许网站播放声音，并检查音量设置。');
+            }
+        }, 500);
+    }
+    
+    // 会话检查函数
+    function checkSession() {
+        // 只有已登录用户才需要检查会话状态
+        if (!{% if current_user.is_authenticated %}true{% else %}false{% endif %}) return;
+        
+        fetch('/api/check-session')
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Session expired');
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (!data.valid) {
+                    // 如果会话无效，重定向到登录页面
+                    window.location.href = "{{ url_for('login') }}";
+                }
+            })
+            .catch(error => {
+                console.error('Session check failed:', error);
+                // 遇到错误时也重定向到登录页面
+                window.location.href = "{{ url_for('login') }}";
+            });
+    }
+
+    // 如果用户已登录，启动会话检查
+    {% if current_user.is_authenticated %}
+    // 每30秒检查一次会话状态
+    setInterval(checkSession, 30000);
+    {% endif %}
+    
+    // 检查用户是否在登录或注册页面
+    const isLoginOrRegisterPage = window.location.pathname === '/login' || 
+                                 window.location.pathname === '/register' ||
+                                 window.location.pathname === '/';
+    
+    // 检查通知更新
+    let lastNotificationId = {% if notification %}{{ notification.id }}{% else %}null{% endif %};
+    let lastNotificationContent = {% if notification %}"{{ notification.content|e }}"{% else %}""{% endif %};
+    // 初始化用户关闭的通知ID为null，表示尚未手动关闭任何通知
+    let userClosedNotificationId = null;
+    
+    function checkNotificationUpdates() {
+        // 如果是登录或注册页面，不需要检查通知
+        if (isLoginOrRegisterPage) {
+            console.log('登录或注册页面，跳过通知检查');
+            return;
+        }
+        
+        console.log('正在检查通知更新...');
+        // 添加时间戳防止缓存
+        const timestamp = new Date().getTime();
+        fetch(`/api/notifications?t=${timestamp}`, {
+            method: 'GET',
+            credentials: 'include', // 确保发送cookie，维持会话
+            headers: {
+                'Accept': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest', // 标记为XHR请求
+                'Cache-Control': 'no-cache, no-store, must-revalidate', // 客户端防缓存头
+                'Pragma': 'no-cache',
+                'Expires': '0'
+            }
+        })
+            .then(response => {
+                console.log('通知API响应状态:', response.status);
+                if (!response.ok) {
+                    if (response.status === 401 || response.status === 403) {
+                        console.log('用户未登录或会话已过期');
+                        return null; // 用户未登录，返回null，跳过后续处理
+                    }
+                    throw new Error('API响应错误: ' + response.status);
+                }
+                return response.json();
+            })
+            .then(data => {
+                // 如果data为null，说明用户未登录，直接跳过处理
+                if (!data) return;
+                
+                console.log('收到通知数据:', data);
+                if (data.status === 'success') {
+                    // 只查找内嵌的通知栏，不查找或创建弹出式通知卡片
+                    // 通知内容元素（在内嵌通知栏中，对应第二张图片示例）
+                    const notificationContent = document.querySelector('.notification-card .notification-content');
+                    // 通知卡片容器（内嵌在页面中的通知栏）
+                    const notificationCard = document.querySelector('.notification-card');
+                    
+                    console.log('当前通知元素状态:', {
+                        notificationCardFound: !!notificationCard,
+                        notificationContentFound: !!notificationContent,
+                        lastNotificationId: lastNotificationId,
+                        newNotificationId: data.notification ? data.notification.id : null
+                    });
+                    
+                    if (data.notification) {
+                        // 有通知，每次检查到通知都强制更新
+                        console.log('收到通知，ID:', data.notification.id, '内容:', data.notification.content);
+                        
+                        // 更新缓存的通知ID和内容
+                        const newNotificationId = data.notification.id;
+                        const newNotificationContent = data.notification.content;
+                        
+                        // 检测内容是否发生变化
+                        const contentChanged = newNotificationContent !== lastNotificationContent;
+                        const idChanged = newNotificationId !== lastNotificationId;
+                        
+                        // 记录是否需要发出提示音
+                        let shouldPlaySound = contentChanged || idChanged;
+                        
+                        // 检查通知是否为新通知或内容已更改
+                        const isNewNotification = newNotificationId !== userClosedNotificationId;
+                        console.log('通知检查：', {
+                            newNotificationId: newNotificationId,
+                            userClosedNotificationId: userClosedNotificationId,
+                            isNewNotification: isNewNotification
+                        });
+                        
+                        // 无论如何都更新已存在的内嵌通知栏内容，但尊重用户的显示/隐藏选择
+                        if (notificationContent) {
+                            // 更新内容 - 确保DOM内容始终是最新的
+                            console.log('更新通知内容:', data.notification.content);
+                            
+                            // 使用直接赋值确保内容更新
+                            notificationContent.textContent = newNotificationContent;
+                            
+                            // 同时更新任何data-*属性，确保通知ID等元数据也更新
+                            if (notificationCard) {
+                                notificationCard.dataset.notificationId = newNotificationId;
+                            }
+                            
+                            // 只有满足以下条件之一才显示通知栏：
+                            // 1. 这是一个新的通知（ID不同于用户关闭的那条）
+                            // 2. 通知内容发生了变化（同一条通知但内容被更新）
+                            if (notificationCard && notificationCard.style.display === 'none' && 
+                                (isNewNotification || (contentChanged && shouldPlaySound))) {
+                                console.log('这是新通知或内容已更新，显示通知栏');
+                                notificationCard.style.display = '';
+                                // 重置关闭记录，因为这是新通知或内容已更新
+                                userClosedNotificationId = null;
+                            }
+                            
+                            // 只有在通知内容变化时才播放提示音
+                            if (shouldPlaySound) {
+                                console.log('发现通知有更新，ID:', newNotificationId);
+                                console.log('内容变化，播放通知提示音');
+                                playNotificationSound();
+                            } else {
+                                console.log('通知未更改，无需更新');
+                            }
+                        }
+                        
+                        // 更新后再设置缓存的ID和内容
+                        lastNotificationId = newNotificationId;
+                        lastNotificationContent = newNotificationContent;
+                    } else {
+                        // 没有通知，可能被删除了
+                        if (lastNotificationId && notificationCard) {
+                            // 之前有通知，现在没有了，说明通知被删除
+                            console.log('通知已被删除，隐藏通知栏');
+                            notificationCard.style.display = 'none';
+                            lastNotificationId = null;
+                            lastNotificationContent = "";
+                        }
+                    }
+                } else {
+                    console.warn('API返回错误状态:', data.message || '未知错误');
+                }
+            })
+            .catch(error => {
+                console.error('检查通知更新失败:', error);
+            });
+    }
+    
+    // 定义函数启动定时检查
+    function startNotificationUpdates() {
+        console.log('启动通知自动更新...');
+        // 页面加载后立即执行一次检查
+        checkNotificationUpdates();
+        // 然后每3秒检查一次，确保及时更新通知
+        return setInterval(checkNotificationUpdates, 3000);
+    }
+    
+    // 确保页面完全加载后启动通知更新
+    document.addEventListener('DOMContentLoaded', function() {
+        console.log('DOM已加载，准备启动通知更新...');
+        // 延迟100毫秒启动，确保DOM完全就绪
+        setTimeout(startNotificationUpdates, 100);
+    });
+    
+    // 如果DOMContentLoaded已经触发，直接启动
+    if (document.readyState === 'interactive' || document.readyState === 'complete') {
+        console.log('DOM已就绪，立即启动通知更新...');
+        startNotificationUpdates();
+    }
+    
+    // 移除了动态通知卡片创建功能，根据用户要求只保留通知栏自动更新
+
+    // 通知栏相关功能
+    {% if current_user.is_authenticated %}
+    
+    // 关闭通知栏
+    document.getElementById('closeNotifications')?.addEventListener('click', function() {
+        const notificationCard = document.querySelector('.notification-card');
+        if (notificationCard) {
+            notificationCard.style.display = 'none';
+            // 记录当前被关闭的通知ID，以便在后续检查中判断是否为同一条通知
+            userClosedNotificationId = lastNotificationId;
+            console.log('用户关闭了通知，ID:', userClosedNotificationId);
+        }
+    });
+
+    // 管理员通知管理功能
+    {% if current_user.is_admin %}
+    // 编辑通知
+    document.querySelectorAll('.edit-notification').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const notificationId = this.getAttribute('data-id');
+            const contentElement = document.querySelector('.notification-card .notification-content');
+            const currentContent = contentElement.textContent;
+
+            const newContent = prompt('请编辑通知内容:', currentContent);
+            if (newContent !== null && newContent.trim() !== '') {
+                fetch(`/api/notifications/${notificationId}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ content: newContent })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        contentElement.textContent = newContent;
+                    } else {
+                        alert('更新失败: ' + data.message);
+                    }
+                })
+                .catch(error => {
+                    console.error('更新通知失败:', error);
+                    alert('更新失败，请稍后重试');
+                });
+            }
+        });
+    });
+
+    // 删除通知
+    document.querySelectorAll('.delete-notification').forEach(btn => {
+        btn.addEventListener('click', function() {
+            if (confirm('确定要删除这条通知吗？此操作不可撤销。')) {
+                const notificationId = this.getAttribute('data-id');
+                const notificationCard = document.querySelector('.notification-card');
+
+                fetch(`/api/notifications/${notificationId}`, {
+                    method: 'DELETE'
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        // 删除后隐藏整个通知栏
+                        if (notificationCard) {
+                            notificationCard.style.display = 'none';
+                            // 更新已关闭的通知ID记录
+                            userClosedNotificationId = parseInt(notificationId);
+                            console.log('通知已删除，更新关闭记录ID:', userClosedNotificationId);
+                        }
+                    } else {
+                        alert('删除失败: ' + data.message);
+                    }
+                })
+                .catch(error => {
+                    console.error('删除通知失败:', error);
+                    alert('删除失败，请稍后重试');
+                });
+            }
+        });
+    });
+
+    // 已移除切换通知状态的功能 - 简化版只保留一条通知
+    {% endif %}
+    {% endif %}
+    </script>
+</body>
+</html>

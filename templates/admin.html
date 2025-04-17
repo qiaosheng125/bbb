@@ -1,0 +1,2039 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card mb-4">
+    <div class="card-header">
+        <h3>管理员控制面板</h3>
+    </div>
+    <div class="card-body">
+
+        <div class="row mb-4">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h4>文件上传</h4>
+                    </div>
+                    <div class="card-body">
+                        <form method="POST" action="{{ url_for('upload_file') }}" enctype="multipart/form-data" id="uploadForm">
+                            <div class="mb-3">
+                                <div class="upload-area" id="dropZone">
+                                    <div class="text-center p-4">
+                                        <i class="fas fa-cloud-upload-alt fa-3x mb-3"></i>
+                                        <p>将文件拖拽到此处或 <label for="file" class="text-primary" style="cursor: pointer;">点击选择文件</label></p>
+                                        <p class="text-muted small">文件名格式：标识符_内容_金额XX元_XX张.txt<br>
+                                        示例：韩_W15_金额1600元_56张.txt</p>
+                                    </div>
+                                    <input type="file" class="d-none" id="file" name="files" multiple accept=".txt">
+                                </div>
+                            </div>
+                            <div id="fileList" class="mb-3"></div>
+                            <div id="uploadProgress" class="progress mb-3 d-none">
+                                <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar"></div>
+                            </div>
+                            <button type="submit" class="btn btn-primary" id="uploadButton">上传文件</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h4>在线客户 <span id="onlineUserCount" class="badge bg-primary">0</span></h4>
+                        <div class="d-flex align-items-center">
+                            <!-- 会话清理工具 -->
+                            <div class="dropdown me-3">
+                                <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" id="sessionCleanupBtn" data-bs-toggle="dropdown">
+                                    <i class="fas fa-broom"></i> 清理会话
+                                </button>
+                                <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="sessionCleanupBtn">
+                                    <li><a class="dropdown-item" href="#" onclick="cleanupSessions(1/60)">清理1分钟未活动会话</a></li>
+                                    <li><a class="dropdown-item" href="#" onclick="cleanupSessions(1)">清理1小时未活动会话</a></li>
+                                    <li><a class="dropdown-item" href="#" onclick="cleanupSessions(2)">清理2小时未活动会话</a></li>
+                                    <li><hr class="dropdown-divider"></li>
+                                    <li><a class="dropdown-item" href="#" onclick="cleanupSessions(24)">清理1天未活动会话</a></li>
+                                    <li><a class="dropdown-item" href="#" onclick="cleanupSessions(336)">清理2周未活动会话</a></li>
+                                </ul>
+                            </div>
+                            
+                            <!-- 注册开关 -->
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="registrationToggle" 
+                                       {% if settings.registration_enabled %}checked{% endif %}
+                                       onchange="toggleRegistration(this.checked)">
+                                <label class="form-check-label" for="registrationToggle">允许注册</label>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card-body">
+
+                        <div class="table-responsive">
+                            <table class="table table-hover" id="onlineUsersTable">
+                                <thead>
+                                    <tr>
+                                        <th>用户名</th>
+                                        <th>标识符</th>
+                                        <th>客户模式</th>
+                                        <th>需求单量</th>
+                                        <th>正在出单</th>
+                                        <th>已出单金额</th>
+                                        <th>设备数</th>
+                                        <th>状态</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                </tbody>
+                            </table>
+                            <!-- 在线用户分页导航 -->
+                            <nav aria-label="Online users navigation" id="onlineUsersPagination">
+                                <ul class="pagination justify-content-center">
+                                </ul>
+                            </nav>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modified File Management Section -->
+        <h4 class="mb-3">文件管理</h4>
+        
+        <!-- 筛选器 -->
+        <div class="row mb-3">
+            <!-- 客户筛选器 -->
+            <div class="col-md-3">
+                <div class="input-group">
+                    <span class="input-group-text">按客户筛选</span>
+                    <select id="clientFilter" class="form-select">
+                        <option value="">全部客户</option>
+                        <!-- 客户选项将通过JavaScript动态加载 -->
+                    </select>
+                </div>
+            </div>
+            
+            <!-- 时间筛选器 -->
+            <div class="col-md-3">
+                <div class="input-group">
+                    <span class="input-group-text">按时间筛选</span>
+                    <select id="timeFilter" class="form-select">
+                        <option value="all">全部时间</option>
+                        <option value="24h">24小时内</option>
+                        <option value="12h">12小时内</option>
+                    </select>
+                </div>
+            </div>
+            
+            <!-- 日期筛选器 -->
+            <div class="col-md-3">
+                <div class="input-group">
+                    <span class="input-group-text">按日期筛选</span>
+                    <input type="date" id="dateFilter" class="form-control">
+                </div>
+            </div>
+
+            <!-- 清除日期筛选按钮 -->
+            <div class="col-md-3">
+                <button id="clearDateFilter" class="btn btn-outline-secondary">
+                    清除日期筛选
+                </button>
+            </div>
+        </div>
+        
+        <div class="table-responsive">
+            <table class="table table-hover">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>文件名</th>
+                        <th>客户</th>
+                        <th>金额</th>
+                        <th>数量</th>
+                        <th>状态</th>
+                        <th>上传时间</th>
+                        <th>经过时间</th>
+                        <th>备注</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody id="fileTableBody">
+                </tbody>
+            </table>
+
+            <!-- 分页导航 -->
+            <nav aria-label="Page navigation" id="filesPagination">
+                <ul class="pagination justify-content-center">
+                </ul>
+            </nav>
+        </div>
+
+        <h4 class="mb-3">客户管理</h4>
+        <div class="table-responsive">
+            <table class="table table-hover">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>用户名</th>
+                        <th>标识符</th>
+                        <th>注册时间</th>
+                        <th>角色</th>
+                        <th>客户模式</th>
+                        <th>最大设备数</th>
+                        <th>授权设备ID</th>
+                        <th>文件数量</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for user in users.items %}
+                    <tr>
+                        <td>{{ user.id }}</td>
+                        <td>{{ user.username }}</td>
+                        <td>{{ user.identifier or '未设置' }}</td>
+                        <td>{{ user.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                        <td>
+                            {% if user.is_admin %}
+                                <span class="badge bg-primary">管理员</span>
+                            {% else %}
+                                <span class="badge bg-secondary">用户</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if not user.is_admin %}
+                            <select class="form-select form-select-sm" 
+                                    onchange="updateClientMode({{ user.id }}, this.value)"
+                                    {% if user.is_admin %}disabled{% endif %}>
+                                <option value="download" 
+                                        {% if user.client_mode.value == 'download' %}selected{% endif %}>
+                                    下载模式
+                                </option>
+                                <option value="webpage" 
+                                        {% if user.client_mode.value == 'webpage' %}selected{% endif %}>
+                                    网页解析模式
+                                </option>
+                            </select>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if not user.is_admin %}
+                                <div class="input-group input-group-sm">
+                                    <input type="number" class="form-control form-control-sm" 
+                                           id="maxDevices{{ user.id }}" 
+                                           value="{{ user.max_devices }}" 
+                                           min="0" 
+                                           style="width: 80px;"
+                                           title="0表示禁止所有设备登录，正数表示允许的最大设备数">
+                                    <button class="btn btn-sm btn-secondary" 
+                                            onclick="updateMaxDevices({{ user.id }})">
+                                        更新
+                                    </button>
+                                </div>
+                            {% else %}
+                                <span class="text-muted">N/A</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if not user.is_admin %}
+                                <div class="d-flex align-items-center" id="deviceList{{ user.id }}">
+                                    <!-- 设备数量显示和下拉菜单 -->
+                                    <div class="dropdown me-2">
+                                        <button class="btn btn-sm btn-outline-secondary dropdown-toggle"
+                                                type="button" 
+                                                id="deviceDropdown{{ user.id }}" 
+                                                data-bs-toggle="dropdown" 
+                                                aria-expanded="false">
+                                            设备 <span class="badge bg-primary">{{ user.registered_devices|length }}</span>
+                                        </button>
+                                        <ul class="dropdown-menu" aria-labelledby="deviceDropdown{{ user.id }}">
+                                            {% if user.registered_devices %}
+                                                {% for device in user.registered_devices %}
+                                                    <li class="dropdown-item d-flex justify-content-between align-items-center">
+                                                        <span class="text-truncate me-2" style="max-width: 220px;" title="{{ device.device_id }}">
+                                                            {{ device.device_id[:8] + "..." + device.device_id[-8:] }}
+                                                        </span>
+                                                        <button class="btn btn-sm btn-danger py-0 px-1" 
+                                                                onclick="removeDevice('{{ device.device_id }}', {{ user.id }})" 
+                                                                title="删除设备">
+                                                            <i class="fas fa-times"></i>
+                                                        </button>
+                                                    </li>
+                                                {% endfor %}
+                                            {% else %}
+                                                <li><span class="dropdown-item text-muted">没有授权设备</span></li>
+                                            添加
+                                            {% endif %}
+                                        </ul>
+                                    </div>
+                                    
+                                    <!-- 添加设备输入框 -->
+                                    <div class="input-group input-group-sm" style="max-width: 300px;">
+                                        <input type="text" class="form-control form-control-sm" 
+                                               id="newDeviceId{{ user.id }}" 
+                                               placeholder="添加新设备ID" 
+                                               style="font-size: 0.7rem;">
+                                        <button class="btn btn-sm btn-outline-primary" 
+                                                onclick="addDeviceToUser({{ user.id }})"
+                                                style="font-size: 0.7rem;">
+                                            添加
+                                        </button>
+                                    </div>
+                                        </button>
+                                    </div>
+                                </div>
+                            {% else %}
+                                <span class="text-muted">N/A</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ user.files|length }}</td>
+                        <td>
+                            {% if not user.is_admin %}
+                            <button class="btn btn-sm btn-danger" 
+                                    onclick="deleteUser({{ user.id }})">
+                                删除
+                            </button>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+
+            <!-- 用户列表分页导航 -->
+            {% if users.pages > 1 %}
+            <nav aria-label="User navigation">
+                <ul class="pagination justify-content-center">
+                    <li class="page-item {{ 'disabled' if not users.has_prev }}">
+                        <a class="page-link" href="{{ url_for('admin', page=users.prev_num) if users.has_prev else '#' }}">上一页</a>
+                    </li>
+                    {% for page in users.iter_pages() %}
+                        {% if page %}
+                            <li class="page-item {{ 'active' if page == users.page }}">
+                                <a class="page-link" href="{{ url_for('admin', page=page) }}">{{ page }}</a>
+                            </li>
+                        {% else %}
+                            <li class="page-item disabled"><span class="page-link">...</span></li>
+                        {% endif %}
+                    {% endfor %}
+                    <li class="page-item {{ 'disabled' if not users.has_next }}">
+                        <a class="page-link" href="{{ url_for('admin', page=users.next_num) if users.has_next else '#' }}">下一页</a>
+                    </li>
+                </ul>
+            </nav>
+            {% endif %}
+        </div>
+
+        <!-- 设备管理 -->
+        <h4 class="mb-3">设备管理</h4>
+        <div class="card mb-4">
+            <div class="card-body">
+                <div class="d-flex justify-content-between mb-3">
+                    <div>
+                        <div class="input-group input-group-sm">
+                            <input type="text" id="deviceSearchInput" class="form-control" placeholder="搜索标识符...">
+                            <button class="btn btn-outline-secondary" type="button" id="deviceSearchBtn">搜索</button>
+                        </div>
+                    </div>
+                    <div>
+                        <button class="btn btn-sm btn-primary" id="refreshDevicesBtn">刷新</button>
+                    </div>
+                </div>
+                
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover" id="devicesTable">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>设备ID</th>
+                                <th>设备名称</th>
+                                <th>客户</th>
+                                <th>首次登录</th>
+                                <th>最后活动</th>
+                                <th>授权状态</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td colspan="8" class="text-center">正在加载...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                
+                <!-- 设备分页导航 -->
+                <nav aria-label="Device navigation" id="devicesPagination">
+                    <ul class="pagination pagination-sm justify-content-center">
+                    </ul>
+                </nav>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.upload-area {
+    border: 2px dashed var(--bs-border-color);
+    border-radius: 5px;
+    padding: 20px;
+    text-align: center;
+    transition: all 0.3s ease;
+    background-color: var(--bs-body-bg);
+}
+
+.upload-area.dragover {
+    border-color: var(--bs-primary);
+    background-color: var(--bs-primary-bg-subtle);
+}
+
+#fileList .file-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px;
+    border: 1px solid var(--bs-border-color);
+    border-radius: 4px;
+    margin-bottom: 8px;
+}
+
+#fileList .file-item .remove-file {
+    cursor: pointer;
+    color: var(--bs-danger);
+}
+
+/* 紧凑的表格行样式 */
+#onlineUsersTable tr.small-row td {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.875rem;
+}
+
+#onlineUsersTable thead th {
+    padding: 0.5rem;
+    font-size: 0.875rem;
+}
+</style>
+
+<script>
+// 初始化变量
+let currentPage = 1;
+let lastData = null;
+let lastOnlineUsers = null;
+let currentEditingFileId = null;
+
+// DOM元素
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('file');
+const fileList = document.getElementById('fileList');
+const uploadForm = document.getElementById('uploadForm');
+const uploadProgress = document.getElementById('uploadProgress');
+const progressBar = uploadProgress.querySelector('.progress-bar');
+
+// 节流函数
+function throttle(func, limit) {
+    let inThrottle;
+    return function(...args) {
+        if (!inThrottle) {
+            func.apply(this, args);
+            inThrottle = true;
+            setTimeout(() => inThrottle = false, limit);
+        }
+    }
+}
+
+// 在线用户分页变量
+let onlineUserCurrentPage = 1;
+let onlineUserPerPage = 6; // 每页显示6条记录
+
+// 更新在线用户
+function updateOnlineUsers(page = 1) {
+    onlineUserCurrentPage = page;
+    fetch(`/api/users/online?page=${page}&per_page=${onlineUserPerPage}`)
+    .then(response => response.json())
+    .then(data => {
+        const users = data.users;
+        const pagination = data.pagination;
+        const totalOnline = data.total_online;
+        
+        // 更新在线用户总数显示
+        const userCountBadge = document.getElementById('onlineUserCount');
+        if (userCountBadge) {
+            userCountBadge.textContent = totalOnline;
+        }
+        
+        // 检查需求单量变化
+        if (lastOnlineUsers) {
+            // 遍历当前在线用户
+            for (const user of users) {
+                // 查找上一次相同用户的记录
+                const prevUser = lastOnlineUsers.find(u => u.id === user.id);
+                // 如果找到了且需求单量增加了，播放提示音
+                if (prevUser && user.order_count > prevUser.order_count) {
+                    console.log(`用户 ${user.username} 的需求单量从 ${prevUser.order_count} 增加到 ${user.order_count}`);
+                    playNotificationSound();
+                    break; // 只播放一次提示音
+                }
+            }
+        }
+        
+        // 保存本次数据作为下次比较基础
+        lastOnlineUsers = users;
+
+        const tbody = document.querySelector('#onlineUsersTable tbody');
+        
+        // 清空当前表格内容
+        tbody.innerHTML = '';
+        
+        if (users.length === 0) {
+            const tr = document.createElement('tr');
+            tr.innerHTML = '<td colspan="8" class="text-center">当前没有在线客户</td>';
+            tbody.appendChild(tr);
+            // 清空分页控件
+            document.getElementById('onlineUsersPagination').innerHTML = '';
+            return;
+        }
+        
+        // 为每个用户创建表格行
+        const rows = users.map(user => `
+            <tr class="small-row">
+                <td>${user.username}</td>
+                <td>${user.identifier || '未设置'}</td>
+                <td>
+                    <span class="badge bg-${user.client_mode === 'download' ? 'primary' : 'success'}">
+                        ${user.client_mode === 'download' ? '下载' : '网页'}
+                    </span>
+                </td>
+                <td>${user.order_count}</td>
+                <td>${user.active_files}</td>
+                <td>${parseFloat(user.completed_amount).toFixed(2)}元</td>
+                <td>${user.active_sessions}/${user.max_devices}</td>
+                <td><span class="badge bg-success">在线</span></td>
+            </tr>
+        `).join('');
+
+        tbody.innerHTML = rows;
+        
+        // 更新分页控件
+        updateOnlineUsersPagination(pagination);
+    })
+    .catch(error => console.error('Error updating online users:', error));
+}
+
+// 更新在线用户分页控件
+function updateOnlineUsersPagination(pagination) {
+    const paginationContainer = document.getElementById('onlineUsersPagination');
+    if (!paginationContainer) return;
+    
+    // 如果只有一页，不显示分页
+    if (pagination.pages <= 1) {
+        paginationContainer.innerHTML = '';
+        return;
+    }
+    
+    let paginationHTML = `
+        <ul class="pagination pagination-sm justify-content-center mb-0">
+            <li class="page-item ${pagination.has_prev ? '' : 'disabled'}">
+                <a class="page-link" href="#" onclick="updateOnlineUsers(${pagination.prev_num}); return false;">上一页</a>
+            </li>
+    `;
+    
+    // 生成页码
+    for (let i = 1; i <= pagination.pages; i++) {
+        // 只显示当前页附近的页码
+        if (i === 1 || i === pagination.pages || (i >= pagination.page - 2 && i <= pagination.page + 2)) {
+            paginationHTML += `
+                <li class="page-item ${i === pagination.page ? 'active' : ''}">
+                    <a class="page-link" href="#" onclick="updateOnlineUsers(${i}); return false;">${i}</a>
+                </li>
+            `;
+        } else if (i === pagination.page - 3 || i === pagination.page + 3) {
+            // 添加省略号
+            paginationHTML += `<li class="page-item disabled"><a class="page-link" href="#">...</a></li>`;
+        }
+    }
+    
+    paginationHTML += `
+            <li class="page-item ${pagination.has_next ? '' : 'disabled'}">
+                <a class="page-link" href="#" onclick="updateOnlineUsers(${pagination.next_num}); return false;">下一页</a>
+            </li>
+        </ul>
+    `;
+    
+    paginationContainer.innerHTML = paginationHTML;
+}
+
+// 更新经过时间
+function updateElapsedTime() {
+    const now = new Date();
+    document.querySelectorAll('.elapsed-time').forEach(td => {
+        const uploadedAt = new Date(td.dataset.uploadedAt);
+        const diffInSeconds = Math.floor((now - uploadedAt) / 1000);
+
+        let elapsedText;
+        if (diffInSeconds < 60) {
+            elapsedText = `${diffInSeconds}秒`;
+        } else if (diffInSeconds < 3600) {
+            const minutes = Math.floor(diffInSeconds / 60);
+            elapsedText = `${minutes}分钟`;
+        } else if (diffInSeconds < 86400) {
+            const hours = Math.floor(diffInSeconds / 3600);
+            elapsedText = `${hours}小时`;
+        } else {
+            const days = Math.floor(diffInSeconds / 86400);
+            elapsedText = `${days}天`;
+        }
+
+        // 只在内容变化时更新DOM
+        if (td.textContent !== elapsedText) {
+            td.textContent = elapsedText;
+        }
+    });
+}
+
+// 生成分页HTML
+function generatePagination(pagination) {
+    const ul = document.querySelector('#filesPagination ul');
+    const newPagination = `
+        <li class="page-item ${!pagination.has_prev ? 'disabled' : ''}">
+            <a class="page-link" href="#" onclick="changePage(${pagination.prev_num}); return false;">上一页</a>
+        </li>
+        ${Array.from({length: pagination.pages}, (_, i) => i + 1)
+            .filter(i => i === 1 || i === pagination.pages || (i >= pagination.page - 2 && i <= pagination.page + 2))
+            .map(i => `
+                <li class="page-item ${i === pagination.page ? 'active' : ''}">
+                    <a class="page-link" href="#" onclick="changePage(${i}); return false;">${i}</a>
+                </li>
+            `).join('')}
+        <li class="page-item ${!pagination.has_next ? 'disabled' : ''}">
+            <a class="page-link" href="#" onclick="changePage(${pagination.next_num}); return false;">下一页</a>
+        </li>
+    `;
+
+    // 只在内容变化时更新DOM
+    if (ul.innerHTML !== newPagination) {
+        ul.innerHTML = newPagination;
+    }
+}
+
+// 更新表格内容
+function updateTableContent(files) {
+    const tbody = document.querySelector('#fileTableBody');
+    
+    if (tbody) {
+        // 获取当前显示的文件ID
+        const existingFileIds = Array.from(tbody.querySelectorAll('tr')).map(row => 
+            parseInt(row.getAttribute('data-file-id'))
+        );
+        
+        // 我们不再在这里检测新增文件并播放提示音
+        // 提示音将由 updateOnlineUsers 函数处理，当检测到需求单量变化时播放
+    }
+    
+    const newContent = files.map(file => `
+        <tr data-file-id="${file.id}" class="${file.status}">
+            <td>${file.display_id}</td>
+            <td>${file.filename}</td>
+            <td>${file.client_username} (${file.client_identifier})</td>
+            <td>${file.amount}元</td>
+            <td>${file.count}张</td>
+            <td>
+                <span class="badge bg-${
+                    {
+                        'pending': 'warning',
+                        'received': 'info',
+                        'completed': 'success',
+                        'revoked': 'danger'
+                    }[file.status]
+                } status-badge">
+                    ${
+                        {
+                            'pending': '待接收',
+                            'received': '已接收',
+                            'completed': '已完成',
+                            'revoked': '已撤回'
+                        }[file.status]
+                    }
+                </span>
+            </td>
+            <td>${file.uploaded_at}</td>
+            <td data-uploaded-at="${file.uploaded_at_iso}" class="elapsed-time"></td>
+            <td>
+                <span class="file-note-display" title="${file.note || '无'}">
+                    ${file.note ? (file.note.length > 2 ? file.note.substring(0, 2) + '...' : file.note) : '无'}
+                </span>
+                <button class="btn btn-sm btn-outline-secondary" 
+                        onclick="editFileNote(${file.id}, '${file.note || ''}')">
+                    <i class="fas fa-edit"></i>
+                </button>
+            </td>
+            <td>
+                <div class="btn-group">
+                    <button class="btn btn-sm btn-info" onclick="viewFileContent(${file.id}, '${file.filename}')">
+                        查看
+                    </button>
+                    ${file.status !== 'completed' && file.status !== 'revoked' ? `
+                    <button class="btn btn-sm btn-danger" onclick="updateFileStatus(${file.id}, 'revoked')">
+                        撤回
+                    </button>
+                    ` : ''}
+                </div>
+            </td>
+        </tr>
+    `).join('');
+
+    // 只在内容变化时更新DOM
+    if (tbody.innerHTML !== newContent) {
+        tbody.innerHTML = newContent;
+        updateElapsedTime();
+    }
+}
+
+// 更新文件列表
+function updateFileList() {
+    // 获取当前选中的客户ID
+    const clientFilter = document.getElementById('clientFilter');
+    const clientId = clientFilter ? clientFilter.value : '';
+    
+    // 获取时间筛选
+    const timeFilter = document.getElementById('timeFilter');
+    const timeValue = timeFilter ? timeFilter.value : 'all';
+    
+    // 获取日期筛选
+    const dateFilter = document.getElementById('dateFilter');
+    const dateValue = dateFilter && dateFilter.value ? dateFilter.value : '';
+    
+    // 构建请求URL
+    let url = `/api/files/list?page=${currentPage}`;
+    if (clientId) {
+        url += `&client_id=${clientId}`;
+    }
+    
+    // 添加时间筛选参数
+    if (timeValue !== 'all') {
+        url += `&time_filter=${timeValue}`;
+    }
+    
+    // 添加日期筛选参数
+    if (dateValue) {
+        url += `&date_filter=${dateValue}`;
+    }
+    
+    fetch(url)
+    .then(response => response.json())
+    .then(data => {
+        const newData = JSON.stringify(data);
+        if (newData !== lastData) {
+            updateTableContent(data.files);
+            generatePagination(data.pagination);
+            lastData = newData;
+        }
+    })
+    .catch(error => console.error('Error updating file list:', error));
+}
+
+// 切换页面
+function changePage(page) {
+    currentPage = page;
+    lastData = null; // 强制更新数据
+    updateFileList();
+}
+
+// 文件拖放相关
+function preventDefaults(e) {
+    e.preventDefault();
+    e.stopPropagation();
+}
+
+function highlight(e) {
+    dropZone.classList.add('dragover');
+}
+
+function unhighlight(e) {
+    dropZone.classList.remove('dragover');
+}
+
+['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+    dropZone.addEventListener(eventName, preventDefaults, false);
+    document.body.addEventListener(eventName, preventDefaults, false);
+});
+
+['dragenter', 'dragover'].forEach(eventName => {
+    dropZone.addEventListener(eventName, highlight, false);
+});
+
+['dragleave', 'drop'].forEach(eventName => {
+    dropZone.addEventListener(eventName, unhighlight, false);
+});
+
+// 文件上传相关
+function handleFiles(files) {
+    fileList.innerHTML = '';
+    Array.from(files).forEach(file => {
+        const div = document.createElement('div');
+        div.className = 'file-item';
+        div.innerHTML = `
+            <span>${file.name}</span>
+            <span class="remove-file" onclick="removeFile(this, '${file.name}')">✕</span>
+        `;
+        fileList.appendChild(div);
+    });
+}
+
+function handleDrop(e) {
+    const dt = e.dataTransfer;
+    fileInput.files = dt.files;
+    handleFiles(dt.files);
+}
+
+function removeFile(element, fileName) {
+    const dt = new DataTransfer();
+    Array.from(fileInput.files).forEach(file => {
+        if (file.name !== fileName) {
+            dt.items.add(file);
+        }
+    });
+    fileInput.files = dt.files;
+    element.parentElement.remove();
+}
+
+// 文件上传表单提交
+uploadForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    if (!fileInput.files?.length) {
+        alert('请选择要上传的文件');
+        return;
+    }
+
+    const formData = new FormData();
+    Array.from(fileInput.files).forEach(file => {
+        formData.append('files', file);
+    });
+
+    uploadProgress.classList.remove('d-none');
+    progressBar.style.width = '0%';
+    progressBar.textContent = '0%';
+
+    try {
+        const response = await fetch(uploadForm.action, {
+            method: 'POST',
+            body: formData
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            let message = result.message;
+            
+            // 处理错误信息
+            if (result.errors?.length) {
+                message += `\n\n错误信息:\n${result.errors.join('\n')}`;
+            }
+            
+            // 处理警告信息
+            if (result.warnings?.length) {
+                message += `\n\n警告信息:\n${result.warnings.join('\n')}`;
+            }
+            
+            alert(message);
+            updateFileList();
+            fileInput.value = '';
+            fileList.innerHTML = '';
+        } else {
+            alert(result.error || '上传失败，请重试');
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        alert('上传失败，请重试');
+    } finally {
+        uploadProgress.classList.add('d-none');
+    }
+});
+
+// 事件处理函数
+function updateFileStatus(fileId, newStatus) {
+    fetch(`/api/files/${fileId}/status`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ status: newStatus })
+    })
+    .then(response => response.json())
+    .then(() => {
+        lastData = null; // 强制更新数据
+        updateFileList();
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('状态更新失败，请重试');
+    });
+}
+
+function updateClientMode(userId, mode) {
+    fetch(`/api/users/${userId}/mode`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ mode: mode })
+    })
+    .then(response => response.json())
+    .then(() => {
+        alert('客户模式更新成功');
+        lastOnlineUsers = null; // 强制更新在线用户列表
+        updateOnlineUsers();
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('模式更新失败，请重试');
+    });
+}
+
+function deleteUser(userId) {
+    if (!confirm('警告：您即将删除该用户及其全部数据！\n\n此操作将永久删除：\n- 用户账号信息\n- 所有文件记录\n- 原始文件和加密文件\n- 用户关联的设备记录\n- 所有审计日志\n\n此操作不可恢复，请确认操作！')) {
+        return;
+    }
+
+    fetch(`/api/users/${userId}`, {
+        method: 'DELETE',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => response.json())
+    .then(() => {
+        alert('用户删除成功');
+        location.reload();
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('用户删除失败，请重试');
+    });
+}
+
+// 清理不活跃会话函数
+function cleanupSessions(hours) {
+    if (!confirm(`确定要清理${hours}小时未活动的会话吗？`)) {
+        return;
+    }
+    
+    fetch('/api/sessions/cleanup', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ hours: hours })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            // 显示成功信息
+            alert(`清理成功: ${data.message}\n清理前: ${data.details.before_count} 个会话\n清理后: ${data.details.after_count} 个会话`);
+            
+            // 刷新在线用户列表
+            updateOnlineUsers();
+        } else {
+            alert(`清理失败: ${data.message}`);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('会话清理请求失败，请重试');
+    });
+}
+
+function toggleRegistration(enabled) {
+    fetch('/api/settings/registration', {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ enabled: enabled })
+    })
+    .then(response => response.json())
+    .then(() => {
+        alert(enabled ? '已开启用户注册' : '已禁止用户注册');
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('设置更新失败，请重试');
+        document.getElementById('registrationToggle').checked = !enabled;
+    });
+}
+
+// 事件监听
+dropZone.addEventListener('drop', handleDrop, false);
+fileInput.addEventListener('change', (e) => handleFiles(e.target.files), false);
+
+// 使用节流函数包装更新函数
+const throttledUpdateFileList = throttle(updateFileList, 1000);
+const throttledUpdateElapsedTime = throttle(updateElapsedTime, 1000);
+
+// 启动定时更新
+// 加载客户列表
+function loadClientList() {
+    const clientFilter = document.getElementById('clientFilter');
+    if (!clientFilter) return;
+    
+    fetch('/api/clients/list')
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success' && data.clients) {
+            // 保留"全部客户"选项
+            let options = '<option value="">全部客户</option>';
+            
+            // 添加客户选项
+            data.clients.forEach(client => {
+                const displayText = client.identifier ? 
+                    `${client.username} (${client.identifier})` : 
+                    client.username;
+                options += `<option value="${client.id}">${displayText}</option>`;
+            });
+            
+            clientFilter.innerHTML = options;
+            
+            // 添加选择事件监听
+            clientFilter.addEventListener('change', function() {
+                currentPage = 1; // 重置到第一页
+                lastData = null; // 强制更新数据
+                updateFileList();
+            });
+        }
+    })
+    .catch(error => console.error('Error loading client list:', error));
+}
+
+// 初始化函数 - 在页面加载时执行一次
+function initialize() {
+    console.log('初始化管理员页面...');
+    
+    // 加载客户列表
+    loadClientList();
+    
+    // 设置时间筛选事件监听器
+    const timeFilter = document.getElementById('timeFilter');
+    if (timeFilter) {
+        timeFilter.addEventListener('change', function() {
+            currentPage = 1; // 重置到第一页
+            lastData = null; // 强制更新数据
+            updateFileList();
+        });
+    }
+    
+    // 设置日期筛选事件监听器
+    const dateFilter = document.getElementById('dateFilter');
+    if (dateFilter) {
+        dateFilter.addEventListener('change', function() {
+            currentPage = 1; // 重置到第一页
+            lastData = null; // 强制更新数据
+            updateFileList();
+        });
+    }
+    
+    // 设置清除日期筛选按钮事件监听器
+    const clearDateFilterBtn = document.getElementById('clearDateFilter');
+    if (clearDateFilterBtn) {
+        clearDateFilterBtn.addEventListener('click', function() {
+            const dateFilter = document.getElementById('dateFilter');
+            if (dateFilter) {
+                dateFilter.value = ''; // 清空日期输入框
+                currentPage = 1; // 重置到第一页
+                lastData = null; // 强制更新数据
+                updateFileList();
+            }
+        });
+    }
+    
+    // 初始加载
+    updateFileList();
+    updateOnlineUsers();
+    updateElapsedTime();
+    
+    // 定时更新
+    setInterval(throttledUpdateFileList, 1000);
+    // 使用函数包装器保留当前页数
+    setInterval(() => updateOnlineUsers(onlineUserCurrentPage), 1000);
+    setInterval(throttledUpdateElapsedTime, 1000);
+    
+    // 尝试初始播放一下提示音，确保浏览器允许播放
+    setTimeout(() => {
+        console.log('尝试初始化音频播放能力...');
+        const audio = document.getElementById('notificationSound');
+        if (audio) {
+            audio.volume = 0.1; // 降低音量
+            audio.play()
+                .then(() => {
+                    console.log('初始音频播放成功');
+                    audio.pause();
+                    audio.currentTime = 0;
+                    audio.volume = 1.0; // 恢复音量
+                })
+                .catch(e => {
+                    console.log('初始音频播放失败, 这可能是正常的:', e);
+                    console.log('用户需要与页面交互后才能播放音频');
+                });
+        }
+    }, 1000);
+}
+
+// 播放提示音函数
+function playNotificationSound() {
+    console.log('播放管理员提示音...');
+    const audio = document.getElementById('notificationSound');
+    if (audio) {
+        // 先重置以确保可以重新播放
+        audio.pause();
+        audio.currentTime = 0;
+        
+        // 播放提示音
+        audio.play()
+            .then(() => console.log('提示音播放成功'))
+            .catch(e => console.error('提示音播放失败:', e));
+    } else {
+        console.error('找不到提示音元素 notificationSound');
+    }
+}
+
+
+// 执行初始化
+initialize();
+// 编辑文件备注
+function editFileNote(fileId, currentNote) {
+    currentEditingFileId = fileId;
+    const textarea = document.getElementById('fileNoteText');
+    textarea.value = currentNote || '';
+    
+    // 显示模态框
+    const modal = new bootstrap.Modal(document.getElementById('editNoteModal'));
+    modal.show();
+    
+    // 确保事件监听器只绑定一次
+    const saveBtn = document.getElementById('saveNoteBtn');
+    saveBtn.onclick = function() {
+        saveFileNote();
+    };
+}
+
+// 保存文件备注
+function saveFileNote() {
+    const newNote = document.getElementById('fileNoteText').value.trim();
+    
+    fetch(`/api/files/${currentEditingFileId}/note`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ note: newNote })
+    })
+    .then(response => {
+        if (!response.ok) throw new Error('备注更新失败');
+        return response.json();
+    })
+    .then(data => {
+        // 关闭模态框
+        const modal = bootstrap.Modal.getInstance(document.getElementById('editNoteModal'));
+        if (modal) {
+            modal.hide();
+        }
+        
+        // 强制刷新文件列表，获取最新数据
+        lastData = null;
+        updateFileList();
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('备注更新失败，请重试');
+    });
+}
+
+function updateMaxDevices(userId) {
+    const input = document.getElementById(`maxDevices${userId}`);
+    const newLimit = parseInt(input.value);
+
+    if (isNaN(newLimit) || newLimit < 0) {
+        alert('设备数量必须是不小于0的整数');
+        return;
+    }
+
+    // 当设置为0时，添加确认提示
+    if (newLimit === 0) {
+        if (!confirm('设置为0将断开该用户所有设备的连接，确定要继续吗？')) {
+            return;
+        }
+    }
+
+    fetch(`/api/users/${userId}/max-devices`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ max_devices: newLimit })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            let message = newLimit === 0 
+                ? '已禁止所有设备登录' 
+                : `设备数量限制更新为 ${newLimit}`;
+
+            if (data.sessions_removed > 0) {
+                message += `\n已强制关闭 ${data.sessions_removed} 个超出限制的设备会话`;
+            }
+
+            alert(message);
+            // 更新在线用户列表以反映新的设备限制
+            updateOnlineUsers();
+        } else {
+            alert('更新失败：' + (data.error || '未知错误'));
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('更新失败，请重试');
+    });
+}
+
+// 添加设备ID到用户
+function addDeviceToUser(userId) {
+    const input = document.getElementById(`newDeviceId${userId}`);
+    const deviceId = input.value.trim();
+    
+    if (!deviceId) {
+        alert('请输入设备ID');
+        return;
+    }
+    
+    fetch(`/api/devices/${deviceId}/link-user`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ user_id: userId })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            alert('设备ID已成功关联到用户');
+            input.value = ''; // 清空输入框
+            // 刷新设备列表
+            location.reload();
+        } else {
+            alert(`操作失败: ${data.message || '未知错误'}`);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('操作失败，请重试');
+    });
+}
+
+// 删除用户的设备ID
+function removeDevice(deviceId, userId) {
+    if (!confirm('确定要删除此设备ID吗？删除后用户将无法使用该设备解密文件。')) {
+        return;
+    }
+    
+    // 确保 deviceId 被当作字符串处理，无论传入的是什么类型
+    const deviceIdStr = String(deviceId);
+    
+    fetch(`/api/devices/${deviceIdStr}`, {
+        method: 'DELETE',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            alert('设备ID已成功删除');
+            // 刷新设备列表
+            location.reload();
+        } else {
+            alert(`删除失败: ${data.message || '未知错误'}`);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('删除失败，请重试');
+    });
+}
+
+// 查看文件内容
+function viewFileContent(fileId, filename) {
+    console.log("查看文件内容:", fileId, filename);
+    
+    // 显示模态框
+    const modal = new bootstrap.Modal(document.getElementById('viewFileContentModal'));
+    modal.show();
+    
+    // 显示加载状态
+    document.getElementById('fileContentLoading').classList.remove('d-none');
+    document.getElementById('fileContentContainer').classList.add('d-none');
+    document.getElementById('fileContentError').classList.add('d-none');
+    
+    // 设置文件名
+    document.getElementById('fileContentFilename').textContent = filename;
+    
+    // 请求文件内容
+    fetch(`/api/files/${fileId}/view_content`)
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('请求失败: ' + response.status);
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data.status === 'success') {
+                console.log("成功获取文件内容", data);
+                
+                // 获取文件内容容器并清空
+                const contentElement = document.getElementById('fileContent');
+                
+                // 强制设置样式确保可见性
+                contentElement.style.color = '#ffffff';
+                contentElement.style.backgroundColor = '#000000';
+                
+                // 处理文件内容，过滤掉空行
+                let processedContent;
+                if (!data.content || data.content.trim() === '') {
+                    processedContent = "[空文件]";
+                    console.log("文件内容为空，显示空文件提示");
+                } else {
+                    // 使用更严格的方式处理内容
+                    // 先完全清理内容，再一行一行添加有效内容
+                    try {
+                        // 分割成行并过滤所有空行
+                        const allLines = data.content.split('\n');
+                        console.log(`原始文件总行数: ${allLines.length}`);
+                        
+                        // 更严格地过滤：只保留有实际内容的行
+                        const contentLines = allLines.filter(line => line.trim() !== '');
+                        console.log(`有效内容行数: ${contentLines.length}`);
+                        console.log(`已过滤空行: ${allLines.length - contentLines.length}`);
+                        
+                        // 使用数组存储仅含有效内容的每一行
+                        console.log("有效内容行:", contentLines);
+                        
+                        // 更新行数统计
+                        document.getElementById('totalLinesCount').textContent = allLines.length;
+                        document.getElementById('visibleLinesCount').textContent = contentLines.length;
+                        
+                        // 创建固定内容HTML，避免使用innerText
+                        processedContent = contentLines.join("\n");
+                    } catch (error) {
+                        console.error('处理文件内容时出错:', error);
+                        processedContent = data.content;  // 出错时使用原始内容
+                    }
+                }
+                
+                // 使用特殊的DOM技术显示内容，避免浏览器对空白行的处理问题
+                contentElement.textContent = '';  // 先清空
+                
+                // 采用分行显示的方式处理内容
+                if (processedContent.trim() === '') {
+                    contentElement.textContent = "[空文件]";
+                } else {
+                    // 使用Document Fragment高效处理
+                    const fragment = document.createDocumentFragment();
+                    processedContent.split('\n').forEach(line => {
+                        if (line.trim()) {
+                            const lineElement = document.createTextNode(line);
+                            fragment.appendChild(lineElement);
+                            fragment.appendChild(document.createElement('br'));
+                        }
+                    });
+                    contentElement.appendChild(fragment);
+                }
+                
+                // 隐藏加载状态，显示内容
+                document.getElementById('fileContentLoading').classList.add('d-none');
+                document.getElementById('fileContentContainer').classList.remove('d-none');
+            } else {
+                throw new Error(data.message || '获取文件内容失败');
+            }
+        })
+        .catch(error => {
+            console.error('加载文件内容失败:', error);
+            // 显示错误信息
+            document.getElementById('fileContentLoading').classList.add('d-none');
+            const errorElement = document.getElementById('fileContentError');
+            errorElement.textContent = '加载文件内容失败: ' + error.message;
+            errorElement.classList.remove('d-none');
+        });
+}
+
+// 通知相关功能
+// 加载所有通知
+function loadAllNotifications() {
+    // 获取通知内容区域
+    const notificationBoard = document.querySelector('.notification-board');
+    // 获取通知按钮容器
+    const actionContainer = document.querySelector('.notification-list .mt-3');
+    
+    fetch('/api/notifications')
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success' && data.notification) {
+                // 更新通知内容
+                notificationBoard.textContent = data.notification.content;
+                notificationBoard.classList.remove('text-muted');
+                
+                // 确保按钮区域有正确的编辑和删除按钮
+                if (actionContainer) {
+                    // 清空原有按钮
+                    actionContainer.innerHTML = '';
+                    
+                    // 创建编辑按钮
+                    const editBtn = document.createElement('button');
+                    editBtn.className = 'btn btn-outline-secondary edit-notification';
+                    editBtn.dataset.id = data.notification.id;
+                    editBtn.innerHTML = '<i class="fas fa-edit"></i> 编辑';
+                    
+                    // 创建删除按钮
+                    const deleteBtn = document.createElement('button');
+                    deleteBtn.className = 'btn btn-outline-danger delete-notification';
+                    deleteBtn.dataset.id = data.notification.id;
+                    deleteBtn.innerHTML = '<i class="fas fa-trash"></i> 删除';
+                    
+                    // 添加按钮到容器
+                    actionContainer.appendChild(editBtn);
+                    actionContainer.appendChild(document.createTextNode(' '));
+                    actionContainer.appendChild(deleteBtn);
+                    
+                    // 添加编辑按钮事件监听
+                    editBtn.addEventListener('click', function() {
+                        const notificationId = this.dataset.id;
+                        const currentContent = notificationBoard.textContent;
+                        
+                        const newContent = prompt('请编辑通知内容:', currentContent);
+                        if (newContent !== null && newContent.trim() !== '') {
+                            fetch(`/api/notifications/${notificationId}`, {
+                                method: 'PUT',
+                                headers: {
+                                    'Content-Type': 'application/json'
+                                },
+                                body: JSON.stringify({ content: newContent })
+                            })
+                            .then(response => response.json())
+                            .then(data => {
+                                if (data.status === 'success') {
+                                    notificationBoard.textContent = newContent;
+                                } else {
+                                    alert('更新失败: ' + data.message);
+                                }
+                            })
+                            .catch(error => {
+                                console.error('更新通知失败:', error);
+                                alert('更新失败，请稍后重试');
+                            });
+                        }
+                    });
+                    
+                    // 添加删除按钮事件监听
+                    deleteBtn.addEventListener('click', function() {
+                        if (confirm('确定要删除这条通知吗？此操作不可撤销。')) {
+                            const notificationId = this.dataset.id;
+                            
+                            fetch(`/api/notifications/${notificationId}`, {
+                                method: 'DELETE'
+                            })
+                            .then(response => response.json())
+                            .then(data => {
+                                if (data.status === 'success') {
+                                    notificationBoard.textContent = '暂无通知';
+                                    notificationBoard.classList.add('text-muted');
+                                    actionContainer.innerHTML = '';
+                                } else {
+                                    alert('删除失败: ' + data.message);
+                                }
+                            })
+                            .catch(error => {
+                                console.error('删除通知失败:', error);
+                                alert('删除失败，请稍后重试');
+                            });
+                        }
+                    });
+                }
+            } else {
+                // 没有通知
+                notificationBoard.textContent = '暂无通知';
+                notificationBoard.classList.add('text-muted');
+                if (actionContainer) {
+                    actionContainer.innerHTML = '';
+                }
+            }
+        })
+        .catch(error => {
+            console.error('加载通知失败:', error);
+            notificationBoard.textContent = '加载通知失败，请刷新页面重试';
+            notificationBoard.classList.add('text-muted');
+        });
+}
+
+// 为初始页面加载时的编辑和删除按钮添加事件处理
+function addInitialNotificationEventListeners() {
+    // 获取通知内容和操作按钮容器
+    const notificationBoard = document.querySelector('.notification-board');
+    const actionContainer = document.querySelector('.notification-list .mt-3');
+    
+    if (!notificationBoard || !actionContainer) return;
+    
+    // 为编辑按钮添加事件监听
+    const editBtn = actionContainer.querySelector('.edit-notification');
+    if (editBtn) {
+        editBtn.addEventListener('click', function() {
+            const notificationId = this.dataset.id;
+            const currentContent = notificationBoard.textContent;
+            
+            const newContent = prompt('请编辑通知内容:', currentContent);
+            if (newContent !== null && newContent.trim() !== '') {
+                fetch(`/api/notifications/${notificationId}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ content: newContent })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        notificationBoard.textContent = newContent;
+                    } else {
+                        alert('更新失败: ' + data.message);
+                    }
+                })
+                .catch(error => {
+                    console.error('更新通知失败:', error);
+                    alert('更新失败，请稍后重试');
+                });
+            }
+        });
+    }
+    
+    // 为删除按钮添加事件监听
+    const deleteBtn = actionContainer.querySelector('.delete-notification');
+    if (deleteBtn) {
+        deleteBtn.addEventListener('click', function() {
+            if (confirm('确定要删除这条通知吗？此操作不可撤销。')) {
+                const notificationId = this.dataset.id;
+                
+                fetch(`/api/notifications/${notificationId}`, {
+                    method: 'DELETE'
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        notificationBoard.textContent = '暂无通知';
+                        notificationBoard.classList.add('text-muted');
+                        actionContainer.innerHTML = '';
+                    } else {
+                        alert('删除失败: ' + data.message);
+                    }
+                })
+                .catch(error => {
+                    console.error('删除通知失败:', error);
+                    alert('删除失败，请稍后重试');
+                });
+            }
+        });
+    }
+}
+
+// 处理发布新通知
+document.addEventListener('DOMContentLoaded', function() {
+    const notificationForm = document.getElementById('notificationForm');
+    if (notificationForm) {
+        notificationForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const contentInput = document.getElementById('notificationContent');
+            const content = contentInput.value.trim();
+            
+            if (!content) {
+                alert('请输入通知内容');
+                return;
+            }
+            
+            fetch('/api/notifications', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ content })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    // 清空输入框
+                    contentInput.value = '';
+                    
+                    // 更新通知内容区域
+                    const notificationBoard = document.querySelector('.notification-board');
+                    if (notificationBoard) {
+                        notificationBoard.textContent = data.notification.content;
+                        notificationBoard.classList.remove('text-muted');
+                    }
+                    
+                    // 更新操作按钮
+                    const actionContainer = document.querySelector('.notification-list .mt-3');
+                    if (actionContainer) {
+                        // 清空原有按钮
+                        actionContainer.innerHTML = '';
+                        
+                        // 创建编辑按钮
+                        const editBtn = document.createElement('button');
+                        editBtn.className = 'btn btn-outline-secondary edit-notification';
+                        editBtn.dataset.id = data.notification.id;
+                        editBtn.innerHTML = '<i class="fas fa-edit"></i> 编辑';
+                        
+                        // 创建删除按钮
+                        const deleteBtn = document.createElement('button');
+                        deleteBtn.className = 'btn btn-outline-danger delete-notification';
+                        deleteBtn.dataset.id = data.notification.id;
+                        deleteBtn.innerHTML = '<i class="fas fa-trash"></i> 删除';
+                        
+                        // 添加按钮到容器
+                        actionContainer.appendChild(editBtn);
+                        actionContainer.appendChild(document.createTextNode(' '));
+                        actionContainer.appendChild(deleteBtn);
+                        
+                        // 添加编辑按钮事件监听
+                        editBtn.addEventListener('click', function() {
+                            const notificationId = this.dataset.id;
+                            const currentContent = notificationBoard.textContent;
+                            
+                            const newContent = prompt('请编辑通知内容:', currentContent);
+                            if (newContent !== null && newContent.trim() !== '') {
+                                fetch(`/api/notifications/${notificationId}`, {
+                                    method: 'PUT',
+                                    headers: {
+                                        'Content-Type': 'application/json'
+                                    },
+                                    body: JSON.stringify({ content: newContent })
+                                })
+                                .then(response => response.json())
+                                .then(data => {
+                                    if (data.status === 'success') {
+                                        notificationBoard.textContent = newContent;
+                                    } else {
+                                        alert('更新失败: ' + data.message);
+                                    }
+                                })
+                                .catch(error => {
+                                    console.error('更新通知失败:', error);
+                                    alert('更新失败，请稍后重试');
+                                });
+                            }
+                        });
+                        
+                        // 添加删除按钮事件监听
+                        deleteBtn.addEventListener('click', function() {
+                            if (confirm('确定要删除这条通知吗？此操作不可撤销。')) {
+                                const notificationId = this.dataset.id;
+                                
+                                fetch(`/api/notifications/${notificationId}`, {
+                                    method: 'DELETE'
+                                })
+                                .then(response => response.json())
+                                .then(data => {
+                                    if (data.status === 'success') {
+                                        notificationBoard.textContent = '暂无通知';
+                                        notificationBoard.classList.add('text-muted');
+                                        actionContainer.innerHTML = '';
+                                    } else {
+                                        alert('删除失败: ' + data.message);
+                                    }
+                                })
+                                .catch(error => {
+                                    console.error('删除通知失败:', error);
+                                    alert('删除失败，请稍后重试');
+                                });
+                            }
+                        });
+                    }
+                    
+                    // 播放提示音
+                    if (typeof playNotificationSound === 'function') {
+                        playNotificationSound();
+                    }
+                } else {
+                    alert('发布失败: ' + data.message);
+                }
+            })
+            .catch(error => {
+                console.error('发布通知失败:', error);
+                alert('发布失败，请稍后重试');
+            });
+        });
+    }
+});
+
+// 确保各种初始化只执行一次
+let domInitialized = false;
+
+// 设备管理变量和函数
+let deviceCurrentPage = 1;
+let deviceSearchTerm = '';
+let deviceSortBy = 'last_active';
+
+// 加载设备列表
+function loadDevices(page = 1, identifier = '') {
+    deviceCurrentPage = page;
+    deviceSearchTerm = identifier;
+    
+    let url = `/api/devices?page=${page}&sort_by=${deviceSortBy}`;
+    if (identifier) {
+        url += `&identifier=${encodeURIComponent(identifier)}`;
+    }
+    
+    fetch(url)
+    .then(response => response.json())
+    .then(data => {
+        const devices = data.devices;
+        const pagination = data.pagination;
+        
+        const tbody = document.querySelector('#devicesTable tbody');
+        tbody.innerHTML = '';
+        
+        if (devices.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="8" class="text-center">没有找到匹配的设备</td></tr>';
+            // 清空分页
+            document.getElementById('devicesPagination').innerHTML = '';
+            return;
+        }
+        
+        // 为每个设备创建表格行
+        devices.forEach(device => {
+            const tr = document.createElement('tr');
+            
+            // 用户信息显示
+            let userInfo = '未关联';
+            if (device.user) {
+                userInfo = `${device.user.username} (${device.user.identifier || '无标识符'})`;
+            }
+            
+            tr.innerHTML = `
+                <td>${device.id}</td>
+                <td><small class="text-muted">${device.device_id.substring(0, 8)}...</small></td>
+                <td>${device.device_name || '未命名设备'}</td>
+                <td>${userInfo}</td>
+                <td>${device.first_seen}</td>
+                <td>${device.last_active}</td>
+                <td>
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" 
+                               ${device.is_authorized ? 'checked' : ''}
+                               onchange="toggleDeviceAuthorization(${device.id}, this.checked)">
+                    </div>
+                </td>
+                <td>
+                    <div class="btn-group btn-group-sm">
+                        <button class="btn btn-outline-primary" onclick="showLinkDeviceModal(${device.id})">
+                            关联用户
+                        </button>
+                        <button class="btn btn-outline-danger" onclick="deleteDevice(${device.id})">
+                            删除
+                        </button>
+                    </div>
+                </td>
+            `;
+            
+            tbody.appendChild(tr);
+        });
+        
+        // 更新分页
+        updateDevicesPagination(pagination);
+    })
+    .catch(error => {
+        console.error('Error loading devices:', error);
+        document.querySelector('#devicesTable tbody').innerHTML = 
+            '<tr><td colspan="8" class="text-center text-danger">加载设备列表失败</td></tr>';
+    });
+}
+
+// 更新设备分页控件
+function updateDevicesPagination(pagination) {
+    const paginationContainer = document.getElementById('devicesPagination');
+    if (!paginationContainer) return;
+    
+    // 如果只有一页，不显示分页
+    if (pagination.pages <= 1) {
+        paginationContainer.innerHTML = '';
+        return;
+    }
+    
+    let paginationHTML = `
+        <ul class="pagination pagination-sm justify-content-center mb-0">
+            <li class="page-item ${pagination.has_prev ? '' : 'disabled'}">
+                <a class="page-link" href="#" onclick="loadDevices(${pagination.prev_num}, '${deviceSearchTerm}'); return false;">上一页</a>
+            </li>
+    `;
+    
+    // 生成页码
+    for (let i = 1; i <= pagination.pages; i++) {
+        // 只显示当前页附近的页码
+        if (i === 1 || i === pagination.pages || (i >= pagination.page - 2 && i <= pagination.page + 2)) {
+            paginationHTML += `
+                <li class="page-item ${i === pagination.page ? 'active' : ''}">
+                    <a class="page-link" href="#" onclick="loadDevices(${i}, '${deviceSearchTerm}'); return false;">${i}</a>
+                </li>
+            `;
+        } else if (i === pagination.page - 3 || i === pagination.page + 3) {
+            // 添加省略号
+            paginationHTML += `<li class="page-item disabled"><a class="page-link" href="#">...</a></li>`;
+        }
+    }
+    
+    paginationHTML += `
+            <li class="page-item ${pagination.has_next ? '' : 'disabled'}">
+                <a class="page-link" href="#" onclick="loadDevices(${pagination.next_num}, '${deviceSearchTerm}'); return false;">下一页</a>
+            </li>
+        </ul>
+    `;
+    
+    paginationContainer.innerHTML = paginationHTML;
+}
+
+// 切换设备授权状态
+function toggleDeviceAuthorization(deviceId, authorize) {
+    fetch(`/api/devices/${deviceId}/authorize`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ authorize }),
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error('网络响应错误');
+        }
+        return response.json();
+    })
+    .then(data => {
+        showToast('成功', `设备已${authorize ? '授权' : '禁用'}`, 'success');
+    })
+    .catch(error => {
+        console.error('Error toggling device authorization:', error);
+        showToast('错误', '更新设备授权状态失败', 'danger');
+        // 回滚开关状态
+        setTimeout(() => loadDevices(deviceCurrentPage, deviceSearchTerm), 500);
+    });
+}
+
+// 删除设备
+function deleteDevice(deviceId) {
+    if (!confirm('确定要删除此设备吗？此操作不能撤销。')) {
+        return;
+    }
+    
+    // 确保 deviceId 被当作字符串处理，无论传入的是什么类型
+    // 修改以匹配后端期望的字符串类型参数
+    const deviceIdStr = String(deviceId);
+    
+    fetch(`/api/devices/${deviceIdStr}`, {
+        method: 'DELETE'
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error('网络响应错误');
+        }
+        return response.json();
+    })
+    .then(data => {
+        showToast('成功', '设备已删除', 'success');
+        loadDevices(deviceCurrentPage, deviceSearchTerm);
+    })
+    .catch(error => {
+        console.error('Error deleting device:', error);
+        showToast('错误', '删除设备失败', 'danger');
+    });
+}
+
+// 显示关联设备和用户的模态框
+function showLinkDeviceModal(deviceId) {
+    // 在实际实现中，你需要创建一个模态框
+    // 这里简化为直接使用 prompt
+    const identifier = prompt('请输入要关联的用户标识符:');
+    if (identifier === null) return;  // 用户取消
+    
+    if (identifier.trim() === '') {
+        alert('标识符不能为空');
+        return;
+    }
+    
+    linkDeviceToUser(deviceId, identifier);
+}
+
+// 关联设备到用户
+function linkDeviceToUser(deviceId, identifier) {
+    fetch(`/api/devices/${deviceId}/link`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ identifier }),
+    })
+    .then(response => {
+        if (!response.ok) {
+            if (response.status === 404) {
+                throw new Error('未找到指定的用户');
+            }
+            throw new Error('网络响应错误');
+        }
+        return response.json();
+    })
+    .then(data => {
+        showToast('成功', `设备已关联到用户 ${data.user.username}`, 'success');
+        loadDevices(deviceCurrentPage, deviceSearchTerm);
+    })
+    .catch(error => {
+        console.error('Error linking device to user:', error);
+        showToast('错误', error.message || '关联设备到用户失败', 'danger');
+    });
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    if (!domInitialized) {
+        // 原有的初始化代码
+        loadAllNotifications();
+        addInitialNotificationEventListeners();
+        
+        // 设备管理初始化代码
+        // 设备搜索
+        const deviceSearchBtn = document.getElementById('deviceSearchBtn');
+        const deviceSearchInput = document.getElementById('deviceSearchInput');
+        
+        if (deviceSearchBtn && deviceSearchInput) {
+            deviceSearchBtn.addEventListener('click', function() {
+                loadDevices(1, deviceSearchInput.value.trim());
+            });
+            
+            deviceSearchInput.addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    loadDevices(1, this.value.trim());
+                    e.preventDefault();
+                }
+            });
+        }
+        
+        // 刷新设备列表按钮
+        const refreshDevicesBtn = document.getElementById('refreshDevicesBtn');
+        if (refreshDevicesBtn) {
+            refreshDevicesBtn.addEventListener('click', function() {
+                loadDevices(deviceCurrentPage, deviceSearchTerm);
+            });
+        }
+        
+        // 首次加载设备列表
+        loadDevices();
+        
+        domInitialized = true;
+    }
+});
+</script>
+
+<!-- 编辑备注模态框 -->
+<div class="modal fade" id="editNoteModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">编辑文件备注</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <textarea id="fileNoteText" class="form-control" rows="4" placeholder="请输入备注内容..."></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" id="saveNoteBtn">保存</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 文件内容查看模态框 -->
+<div class="modal fade" id="viewFileContentModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">查看文件内容</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div id="fileContentLoading" class="text-center">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">加载中...</span>
+                    </div>
+                    <p>正在加载文件内容...</p>
+                </div>
+                <div id="fileContentContainer" class="d-none">
+                    <div class="mb-3">
+                        <strong>文件名:</strong> <span id="fileContentFilename"></span>
+                    </div>
+                    <div id="fileContentStats" class="mb-2 text-muted small">
+                        共 <span id="totalLinesCount">0</span> 行，显示 <span id="visibleLinesCount">0</span> 行 (已过滤空行)
+                    </div>
+                    <div class="border p-3" style="background-color: #000000;">
+                        <pre id="fileContent" class="mb-0" style="white-space: pre-wrap; font-size: 14px; color: #ffffff !important; background-color: #000000 !important; max-height: 500px; overflow-y: auto;"></pre>
+                    </div>
+                </div>
+                <div id="fileContentError" class="d-none text-danger"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 通知管理 -->
+<div class="row mb-4 mt-4">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header">
+                <h4>通知管理</h4>
+            </div>
+            <div class="card-body">
+                <form id="notificationForm" class="mb-4">
+                    <div class="mb-3">
+                        <label for="notificationContent" class="form-label">通知内容</label>
+                        <textarea class="form-control" id="notificationContent" rows="3" placeholder="输入要发布的通知内容..."></textarea>
+                    </div>
+                    <button type="submit" class="btn btn-primary">发布通知</button>
+                </form>
+                
+                <div class="notification-list">
+                    <h5 class="mb-3">当前通知</h5>
+                    <div class="card border-primary">
+                        <div class="card-body notification-board" style="min-height: 100px; border-radius: 5px; padding: 15px; font-size: 1.1rem; border-left: 4px solid #0d6efd;">
+                            {% if notification %}
+                                {{ notification.content }}
+                            {% else %}
+                                <span class="text-muted">暂无通知</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="mt-3">
+                        {% if notification %}
+                        <button class="btn btn-outline-secondary edit-notification" 
+                                data-id="{{ notification.id }}">
+                            <i class="fas fa-edit"></i> 编辑
+                        </button>
+                        <button class="btn btn-outline-danger delete-notification" 
+                                data-id="{{ notification.id }}">
+                            <i class="fas fa-trash"></i> 删除
+                        </button>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% if messages %}
+<div class="alert alert-info">
+    {% for message in messages %}
+        <p>{{ message }}</p>
+    {% endfor %}
+</div>
+{% endif %}
+{% endblock content %}
